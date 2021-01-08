@@ -3,53 +3,51 @@ package main
 import (
 	"database/sql"
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 	_ "github.com/lib/pq"
-	"log"
 )
 
 var DBConnection *sql.DB
 
-func main() { //TODO: названия функций есть в документации...
+func main() {
 	var err error
-	DBConnection, err = sql.Open("postgres", "host=localhost port=5432 user=forums_user password=89269199046qwerty dbname=forums sslmode=disable")
-
+	DBConnection, err = sql.Open("postgres", "host=localhost port=5432 user=forums_user password=forums_user dbname=forums sslmode=disable")
 	defer func() {
 		_ = DBConnection.Close()
 	}()
-
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
 	if err := DBConnection.Ping(); err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
-	e := echo.New()
+	e := echo.New() //TODO: возможно, echo не нужен
 
 	e.POST("/api/forum/create", ForumCreate)
 
 	e.POST("/api/forum/:slug_/create", ThreadCreate)
 
-	e.GET("/api/forum/:slug/details", ForumGetDetails)
+	e.GET("/api/forum/:slug/details", ForumGetOne)
 
 	e.GET("/api/forum/:slug/threads", ForumGetThreads)
 
 	e.GET("/api/forum/:slug/users", ForumGetUsers)
 
-	e.GET("/api/post/:id/details", PostGetDetails)
+	e.GET("/api/post/:id/details", PostGetOne)
 
-	e.POST("/api/post/:id/details", PostUpdateDetails)
+	e.POST("/api/post/:id/details", PostUpdate)
 
 	e.POST("/api/service/clear", ServiceClear)
 
 	e.GET("/api/service/status", ServiceStatus)
 
-	e.POST("/api/thread/:slug_or_id/create", PostCreate)
+	e.POST("/api/thread/:slug_or_id/create", PostsCreate)
 
-	e.GET("/api/thread/:slug_or_id/details", ThreadGetDetails)
+	e.GET("/api/thread/:slug_or_id/details", ThreadGetOne)
 
-	e.POST("/api/thread/:slug_or_id/details", ThreadUpdateDetails)
+	e.POST("/api/thread/:slug_or_id/details", ThreadUpdate)
 
 	e.GET("/api/thread/:slug_or_id/posts", ThreadGetPosts)
 
@@ -57,9 +55,10 @@ func main() { //TODO: названия функций есть в докумен
 
 	e.POST("/api/user/:nickname/create", UserCreate)
 
-	e.GET("/api/user/:nickname/profile", UserGet)
+	e.GET("/api/user/:nickname/profile", UserGetOne)
 
 	e.POST("/api/user/:nickname/profile", UserUpdate)
 
-	log.Fatal(e.Start("localhost:5000"))
+	e.Use(middleware.Logger())
+	_ = e.Start("0.0.0.0:5000")
 }
