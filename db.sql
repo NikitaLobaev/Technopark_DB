@@ -38,7 +38,8 @@ CREATE TABLE post (
 	is_edited boolean NOT NULL DEFAULT false,
 	message text NOT NULL,
 	posts integer[] NOT NULL,
-	thread_id int NOT NULL REFERENCES thread (id) ON DELETE CASCADE
+	thread_id int NOT NULL REFERENCES thread (id) ON DELETE CASCADE,
+    forum_slug citext NOT NULL REFERENCES forum (slug) ON DELETE CASCADE
 );
 
 CREATE TABLE vote (
@@ -48,34 +49,26 @@ CREATE TABLE vote (
 	PRIMARY KEY(profile_nickname, thread_id)
 );
 
-/*CREATE INDEX ON thread (forum_slug);
-
 CREATE INDEX ON thread (slug);
 
-CREATE INDEX ON post (thread_id);
-
-CREATE INDEX ON post (id, thread_id)
-    INCLUDE (posts);*/
+CREATE INDEX ON thread (forum_slug, profile_nickname);
 
 CREATE INDEX ON profile (email)
     INCLUDE (nickname);
 
 CREATE INDEX ON thread (forum_slug, created);
 
-CREATE INDEX ON thread (created, forum_slug);
+CREATE INDEX ON post (forum_slug, profile_nickname);
 
-CREATE INDEX ON thread (profile_nickname, forum_slug);
+CREATE INDEX ON post (id, profile_nickname);
 
-CREATE INDEX ON thread (slug, forum_slug)
-    WHERE slug != '';
+CREATE INDEX ON post (id, forum_slug);
 
-CREATE INDEX ON thread (id, forum_slug);
+CREATE INDEX ON post (id, thread_id, posts);
 
-CREATE INDEX ON post (thread_id, profile_nickname);
+CREATE INDEX ON post (posts, id);
 
-CREATE INDEX ON post (thread_id, id);
-
-CREATE INDEX ON post (profile_nickname, id);
+CREATE INDEX ON post (thread_id, posts, created, id);
 
 CREATE FUNCTION trigger_thread_after_insert()
     RETURNS trigger AS $trigger_thread_after_insert$
@@ -93,7 +86,15 @@ CREATE TRIGGER after_insert AFTER INSERT
 CREATE FUNCTION trigger_post_before_insert()
     RETURNS trigger AS $trigger_post_before_insert$
 BEGIN
-    NEW.posts := NEW.posts || ARRAY[NEW.id];
+    IF NEW.posts[1] <> 0 THEN
+        NEW.posts := (SELECT post.posts FROM post WHERE post.id = NEW.posts[1] AND post.thread_id = NEW.thread_id) || ARRAY[NEW.id];
+        IF array_length(NEW.posts, 1) = 1 THEN
+            RAISE 'Parent post in another thread';
+        END IF;
+    ELSE
+        NEW.posts[1] := NEW.id;
+    END IF;
+    --NEW.posts := NEW.posts || ARRAY[NEW.id];
     RETURN NEW;
 END;
 $trigger_post_before_insert$ LANGUAGE plpgsql;
@@ -103,11 +104,10 @@ CREATE TRIGGER before_insert BEFORE INSERT
     FOR EACH ROW
     EXECUTE PROCEDURE trigger_post_before_insert();
 
-CREATE FUNCTION trigger_post_after_insert()
+CREATE FUNCTION trigger_post_after_insert() --TODO: возможно, лучше объединить этот триггер в один (вместе с trigger_post_before_insert)
     RETURNS trigger AS $trigger_post_after_insert$
 BEGIN
-    UPDATE forum SET posts = posts + 1 WHERE forum.slug =
-                                             (SELECT thread.forum_slug FROM thread WHERE thread.id = NEW.thread_id);
+    UPDATE forum SET posts = posts + 1 WHERE forum.slug = NEW.forum_slug;
     RETURN NEW;
 END;
 $trigger_post_after_insert$ LANGUAGE plpgsql;
@@ -132,7 +132,7 @@ CREATE TRIGGER after_insert AFTER INSERT --TODO: точно AFTER INSERT? мож
 
 CREATE FUNCTION trigger_vote_after_update()
     RETURNS trigger AS $trigger_vote_after_update$
-BEGIN
+BEGIN --TODO: IF OLD.voice != NEW.voice... не только здесь так?...
     UPDATE thread SET votes = votes - OLD.voice + NEW.voice WHERE thread.id = NEW.thread_id;
     RETURN OLD;
 END;
@@ -142,3 +142,7 @@ CREATE TRIGGER after_update AFTER UPDATE
     ON vote
     FOR EACH ROW
     EXECUTE PROCEDURE trigger_vote_after_update();
+
+CREATE EXTENSION pg_stat_statements; --TODO: при нагрузочном тестировании убрать эти 3 строчки, они только для отладки
+ANALYZE;
+SELECT pg_stat_statements_reset();

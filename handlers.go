@@ -91,26 +91,6 @@ func ForumCreate(context echo.Context) error {
 		})
 	}
 
-	/*if err := DBConnection.QueryRow("INSERT INTO forum (slug, title, profile_nickname) SELECT $1, $2, profile.nickname FROM profile WHERE profile.nickname = $3 RETURNING forum.profile_nickname;",
-		forum.Slug, forum.Title, forum.ProfileNickname).Scan(&forum.ProfileNickname); err != nil {
-		if err == sql.ErrNoRows {
-			return context.JSON(http.StatusNotFound, Error{
-				Message: "Can't find user with nickname " + forum.ProfileNickname,
-			})
-		}
-		pqErr := err.(*pq.Error)
-		switch pqErr.Code {
-		case "23505":
-			if err := DBConnection.QueryRow("SELECT forum.slug, forum.title, forum.profile_nickname FROM forum WHERE forum.slug = $1;",
-				forum.Slug).Scan(&forum.Slug, &forum.Title, &forum.ProfileNickname); err == sql.ErrNoRows {
-				panic(err)
-			}
-			return context.JSON(http.StatusConflict, forum)
-		default:
-			panic(err)
-		}
-	}*/
-
 	return context.JSON(http.StatusCreated, forum)
 }
 
@@ -156,10 +136,13 @@ func ThreadCreate(context echo.Context) error {
 		}
 	}
 
-	if err := DBConnection.QueryRow("INSERT INTO thread (profile_nickname, created, forum_slug, message, slug, title) SELECT (SELECT profile.nickname FROM profile WHERE profile.nickname = $1), $2, (SELECT forum.slug FROM forum WHERE forum.slug = $3), $4, $5, $6 RETURNING thread.id, thread.forum_slug;",
+	if err := DBConnection.QueryRow("INSERT INTO thread (profile_nickname, created, forum_slug, message, slug, title) SELECT profile.nickname, $2, forum.slug, $4, $5, $6 FROM profile, forum WHERE profile.nickname = $1 AND forum.slug = $3 RETURNING thread.id, thread.profile_nickname, thread.forum_slug;",
 		thread.ProfileNickname, thread.Created, thread.ForumSlug, thread.Message, thread.Slug, thread.Title).
-		Scan(&thread.Id, &thread.ForumSlug); err != nil {
-		pqErr := err.(*pq.Error)
+		Scan(&thread.Id, &thread.ProfileNickname, &thread.ForumSlug); err != nil {
+		return context.JSON(http.StatusNotFound, Error{
+			Message: "Can't find user with nickname " + thread.ProfileNickname + " or forum with slug " + thread.ForumSlug,
+		})
+		/*pqErr := err.(*pq.Error)
 		switch pqErr.Column {
 		case "profile_nickname":
 			return context.JSON(http.StatusNotFound, Error{
@@ -171,7 +154,7 @@ func ThreadCreate(context echo.Context) error {
 			})
 		default:
 			panic(err)
-		}
+		}*/
 	}
 
 	return context.JSON(http.StatusCreated, thread)
@@ -210,16 +193,20 @@ func ForumGetThreads(context echo.Context) error {
 	since := context.QueryParam("since")
 	if context.QueryParam("desc") != "true" {
 		if since == "" {
-			since = "-infinity"
+			rows, err = DBConnection.Query("SELECT thread.id, thread.profile_nickname, thread.created, thread.message, thread.slug, thread.title, thread.votes FROM thread WHERE thread.forum_slug = $1 ORDER BY thread.created LIMIT $2;",
+				forum.Slug, limit)
+		} else {
+			rows, err = DBConnection.Query("SELECT thread.id, thread.profile_nickname, thread.created, thread.message, thread.slug, thread.title, thread.votes FROM thread WHERE thread.forum_slug = $1 AND thread.created >= $2 ORDER BY thread.created LIMIT $3;",
+				forum.Slug, since, limit)
 		}
-		rows, err = DBConnection.Query("SELECT thread.id, thread.profile_nickname, thread.created, thread.message, thread.slug, thread.title, thread.votes FROM thread WHERE thread.forum_slug = $1 AND thread.created >= $2 ORDER BY thread.created LIMIT $3;",
-			forum.Slug, since, limit)
 	} else {
 		if since == "" {
-			since = "infinity"
+			rows, err = DBConnection.Query("SELECT thread.id, thread.profile_nickname, thread.created, thread.message, thread.slug, thread.title, thread.votes FROM thread WHERE thread.forum_slug = $1 ORDER BY thread.created DESC LIMIT $2;",
+				forum.Slug, limit)
+		} else {
+			rows, err = DBConnection.Query("SELECT thread.id, thread.profile_nickname, thread.created, thread.message, thread.slug, thread.title, thread.votes FROM thread WHERE thread.forum_slug = $1 AND thread.created <= $2 ORDER BY thread.created DESC LIMIT $3;",
+				forum.Slug, since, limit)
 		}
-		rows, err = DBConnection.Query("SELECT thread.id, thread.profile_nickname, thread.created, thread.message, thread.slug, thread.title, thread.votes FROM thread WHERE thread.forum_slug = $1 AND thread.created <= $2 ORDER BY thread.created DESC LIMIT $3;",
-			forum.Slug, since, limit)
 	}
 	if err != nil {
 		panic(err)
@@ -267,18 +254,18 @@ func ForumGetUsers(context echo.Context) error {
 	since := context.QueryParam("since")
 	if context.QueryParam("desc") != "true" {
 		if since == "" {
-			rows, err = DBConnection.Query(fmt.Sprintf("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM thread JOIN profile ON thread.profile_nickname = profile.nickname WHERE thread.forum_slug = $1 UNION SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM post JOIN thread ON post.thread_id = thread.id AND thread.forum_slug = $1 JOIN profile ON post.profile_nickname = profile.nickname ORDER BY nickname LIMIT %s;", limit),
+			rows, err = DBConnection.Query(fmt.Sprintf("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM thread JOIN profile ON thread.profile_nickname = profile.nickname WHERE thread.forum_slug = $1 UNION SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM post JOIN profile ON post.profile_nickname = profile.nickname WHERE post.forum_slug = $1 ORDER BY nickname LIMIT %s;", limit),
 				forum.Slug)
 		} else {
-			rows, err = DBConnection.Query(fmt.Sprintf("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM thread JOIN profile ON thread.profile_nickname = profile.nickname WHERE thread.forum_slug = $1 AND profile.nickname > $2 UNION SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM post JOIN thread ON post.thread_id = thread.id AND thread.forum_slug = $1 JOIN profile ON post.profile_nickname = profile.nickname WHERE profile.nickname > $2 ORDER BY nickname LIMIT %s;", limit),
+			rows, err = DBConnection.Query(fmt.Sprintf("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM thread JOIN profile ON thread.profile_nickname = profile.nickname WHERE thread.forum_slug = $1 AND profile.nickname > $2 UNION SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM post JOIN profile ON post.profile_nickname = profile.nickname WHERE post.forum_slug = $1 AND profile.nickname > $2 ORDER BY nickname LIMIT %s;", limit),
 				forum.Slug, since)
 		}
 	} else {
 		if since == "" {
-			rows, err = DBConnection.Query(fmt.Sprintf("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM thread JOIN profile ON thread.profile_nickname = profile.nickname WHERE thread.forum_slug = $1 UNION SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM post JOIN thread ON post.thread_id = thread.id AND thread.forum_slug = $1 JOIN profile ON post.profile_nickname = profile.nickname ORDER BY nickname DESC LIMIT %s;", limit),
+			rows, err = DBConnection.Query(fmt.Sprintf("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM thread JOIN profile ON thread.profile_nickname = profile.nickname WHERE thread.forum_slug = $1 UNION SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM post JOIN profile ON post.profile_nickname = profile.nickname WHERE post.forum_slug = $1 ORDER BY nickname DESC LIMIT %s;", limit),
 				forum.Slug)
 		} else {
-			rows, err = DBConnection.Query(fmt.Sprintf("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM thread JOIN profile ON thread.profile_nickname = profile.nickname WHERE thread.forum_slug = $1 AND profile.nickname < $2 UNION SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM post JOIN thread ON post.thread_id = thread.id AND thread.forum_slug = $1 JOIN profile ON post.profile_nickname = profile.nickname WHERE profile.nickname < $2 ORDER BY nickname DESC LIMIT %s;", limit),
+			rows, err = DBConnection.Query(fmt.Sprintf("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM thread JOIN profile ON thread.profile_nickname = profile.nickname WHERE thread.forum_slug = $1 AND profile.nickname < $2 UNION SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM post JOIN profile ON post.profile_nickname = profile.nickname WHERE post.forum_slug = $1 AND profile.nickname < $2 ORDER BY nickname DESC LIMIT %s;", limit),
 				forum.Slug, since)
 		}
 	}
@@ -322,9 +309,9 @@ func PostGetOne(context echo.Context) error {
 		}
 	}
 
-	if err := DBConnection.QueryRow("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts, post.thread_id, thread.forum_slug FROM post JOIN thread ON post.thread_id = thread.id WHERE post.id = $1;", postFull.Post.Id).
-		Scan(&postFull.Post.Id, &postFull.Post.ProfileNickname, &postFull.Post.Created, &postFull.Post.IsEdited,
-			&postFull.Post.Message, pq.Array(&posts), &postFull.Post.Thread, &postFull.Post.ForumSlug); err != nil {
+	if err := DBConnection.QueryRow("SELECT post.profile_nickname, post.created, post.is_edited, post.message, post.posts, post.thread_id, post.forum_slug FROM post WHERE post.id = $1;",
+		postFull.Post.Id).Scan(&postFull.Post.ProfileNickname, &postFull.Post.Created, &postFull.Post.IsEdited,
+		&postFull.Post.Message, pq.Array(&posts), &postFull.Post.Thread, &postFull.Post.ForumSlug); err != nil {
 		return context.JSON(http.StatusNotFound, Error{
 			Message: "Can't find post with id " + id,
 		})
@@ -344,7 +331,7 @@ func PostGetOne(context echo.Context) error {
 
 	if forum {
 		postFull.Forum = &Forum{}
-		if err := DBConnection.QueryRow("SELECT forum.slug, forum.title, forum.profile_nickname, forum.threads, forum.posts FROM post JOIN thread ON post.thread_id = thread.id JOIN forum ON thread.forum_slug = forum.slug WHERE post.id = $1;", postFull.Post.Id).
+		if err := DBConnection.QueryRow("SELECT forum.slug, forum.title, forum.profile_nickname, forum.threads, forum.posts FROM post JOIN forum ON post.forum_slug = forum.slug WHERE post.id = $1;", postFull.Post.Id).
 			Scan(&postFull.Forum.Slug, &postFull.Forum.Title, &postFull.Forum.ProfileNickname, &postFull.Forum.Threads,
 				&postFull.Forum.Posts); err != nil {
 			panic(err)
@@ -368,7 +355,7 @@ func PostUpdate(context echo.Context) error {
 	var post Post
 	id := context.Param("id")
 	post.Id, _ = strconv.ParseInt(id, 10, 64)
-	if err := DBConnection.QueryRow("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.thread_id, thread.forum_slug FROM post JOIN thread ON post.thread_id = thread.id WHERE post.id = $1;", post.Id).
+	if err := DBConnection.QueryRow("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.thread_id, post.forum_slug FROM post WHERE post.id = $1;", post.Id).
 		Scan(&post.Id, &post.ProfileNickname, &post.Created, &post.IsEdited, &post.Message, &post.Thread,
 			&post.ForumSlug); err != nil {
 		return context.JSON(http.StatusNotFound, Error{
@@ -413,27 +400,27 @@ func PostsCreate(context echo.Context) error {
 	var thread Thread
 	slugOrId := context.Param("slug_or_id")
 
-	tx, err := DBConnection.Begin()
+	/*tx, err := DBConnection.Begin()
 	if err != nil {
 		panic(err)
-	}
+	}*/
 
 	if _, err := strconv.Atoi(slugOrId); err == nil {
-		if err := tx.QueryRow("SELECT thread.id, thread.slug, thread.forum_slug FROM thread WHERE thread.id = $1;",
+		if err := DBConnection.QueryRow("SELECT thread.id, thread.slug, thread.forum_slug FROM thread WHERE thread.id = $1;",
 			slugOrId).Scan(&thread.Id, &thread.Slug, &thread.ForumSlug); err != nil {
-			if err := tx.Rollback(); err != nil {
+			/*if err := tx.Rollback(); err != nil {
 				panic(err)
-			}
+			}*/
 			return context.JSON(http.StatusNotFound, Error{
 				Message: "Can't find thread with slug or id " + slugOrId,
 			})
 		}
 	} else {
-		if err := tx.QueryRow("SELECT thread.id, thread.slug, thread.forum_slug FROM thread WHERE thread.slug = $1;",
+		if err := DBConnection.QueryRow("SELECT thread.id, thread.slug, thread.forum_slug FROM thread WHERE thread.slug = $1;",
 			slugOrId).Scan(&thread.Id, &thread.Slug, &thread.ForumSlug); err != nil {
-			if err := tx.Rollback(); err != nil {
+			/*if err := tx.Rollback(); err != nil {
 				panic(err)
-			}
+			}*/
 			return context.JSON(http.StatusNotFound, Error{
 				Message: "Can't find thread with slug or id " + slugOrId,
 			})
@@ -443,37 +430,57 @@ func PostsCreate(context echo.Context) error {
 	var posts []*Post
 	result, err := ioutil.ReadAll(context.Request().Body)
 	if err != nil {
-		if err := tx.Rollback(); err != nil {
+		/*if err := tx.Rollback(); err != nil {
 			panic(err)
-		}
+		}*/
 		panic(err)
 	}
 
 	err = json.Unmarshal(result, &posts) //TODO
 	if err != nil {
-		if err := tx.Rollback(); err != nil {
+		/*if err := tx.Rollback(); err != nil {
 			panic(err)
-		}
+		}*/
 		panic(err)
 	}
 
 	if len(posts) == 0 {
-		if err := tx.Rollback(); err != nil {
+		/*if err := tx.Rollback(); err != nil {
 			panic(err)
-		}
+		}*/
 		return context.JSON(http.StatusCreated, posts)
 	}
 
 	location, _ := time.LoadLocation("UTC")
 	now := time.Now().In(location).Round(time.Microsecond)
-	for _, post := range posts {
-		var posts []int64
+
+	query := "INSERT INTO post (profile_nickname, created, message, posts, thread_id, forum_slug) VALUES "
+	values := []interface{}{}
+	for i, post := range posts { //TODO: возможно везде заменить создание массивов/данных в стеке на make... везде так
 		if post.Created.IsZero() {
 			post.Created = now
 		}
-		if post.Parent == 0 {
-			if err = tx.QueryRow("INSERT INTO post (profile_nickname, created, message, thread_id) (SELECT profile.nickname, $1, $2, $3 FROM profile WHERE profile.nickname = $4) RETURNING post.id;",
-				post.Created, post.Message, thread.Id, post.ProfileNickname).Scan(&post.Id); err != nil {
+		//var posts []int64 //INSERT INTO post (profile_nickname, created, message, posts, thread_id, forum_slug) SELECT profile.nickname, $2, $3, $4, $5, $6 FROM profile WHERE profile.nickname = $1 RETURNING post.id
+
+		/*if err = tx.QueryRow(" RETURNING post.id;",
+			post.ProfileNickname, post.Created, post.Message, pq.Array([]int64{post.Parent}), thread.Id, thread.ForumSlug).Scan(&post.Id); err != nil {
+			if err := tx.Rollback(); err != nil {
+				panic(err)
+			}
+			if err == sql.ErrNoRows {
+				return context.JSON(http.StatusNotFound, Error{
+					Message: "Can't find post author by nickname " + post.ProfileNickname,
+				})
+			} else {
+				return context.JSON(http.StatusConflict, Error{
+					Message: "One of parent posts doesn't exists or it was created in another thread",
+				})
+			}
+
+		}*/
+		/*if post.Parent == 0 { //TODO: возможно, здесь можно не делать выборку profile.nickname
+			if err = tx.QueryRow("INSERT INTO post (profile_nickname, created, message, thread_id, forum_slug) SELECT profile.nickname, $1, $2, $3, $5 FROM profile WHERE profile.nickname = $4 RETURNING post.id;",
+				post.Created, post.Message, thread.Id, post.ProfileNickname, thread.ForumSlug).Scan(&post.Id); err != nil {
 				if err := tx.Rollback(); err != nil {
 					panic(err)
 				}
@@ -491,8 +498,8 @@ func PostsCreate(context echo.Context) error {
 					Message: "One of parent posts doesn't exists or it was created in another thread",
 				})
 			}
-			if err = tx.QueryRow("INSERT INTO post (profile_nickname, created, message, posts, thread_id) (SELECT profile.nickname, $1, $2, $3, $4 FROM profile WHERE profile.nickname = $5) RETURNING post.id;",
-				post.Created, post.Message, pq.Array(posts), thread.Id, post.ProfileNickname).Scan(&post.Id); err != nil {
+			if err = tx.QueryRow("INSERT INTO post (profile_nickname, created, message, posts, thread_id, forum_slug) SELECT profile.nickname, $1, $2, $3, $4, $6 FROM profile WHERE profile.nickname = $5 RETURNING post.id;",
+				post.Created, post.Message, pq.Array(posts), thread.Id, post.ProfileNickname, thread.ForumSlug).Scan(&post.Id); err != nil {
 				if err := tx.Rollback(); err != nil {
 					panic(err)
 				}
@@ -500,14 +507,47 @@ func PostsCreate(context echo.Context) error {
 					Message: "Can't find post author by nickname " + post.ProfileNickname,
 				})
 			}
-		}
+		}*/
 		post.ForumSlug = thread.ForumSlug
 		post.Thread = thread.Id
+		values = append(values, post.ProfileNickname, post.Created, post.Message, pq.Array([]int64{post.Parent}), thread.Id, thread.ForumSlug)
+		query += "("
+		for j := 0; j < 6; j++ {
+			query += "$" + strconv.Itoa(i*6+j+1) + ","
+		}
+		query = query[:len(query)-1] + "),"
+	}
+	query = query[:len(query)-1] + " RETURNING post.id;"
+	rows, err := DBConnection.Query(query, values...)
+	if err != nil {
+		pqErr := err.(*pq.Error)
+		switch pqErr.Code {
+		case "23503":
+			return context.JSON(http.StatusNotFound, Error{
+				Message: "Can't find one of authors",
+			})
+		default:
+			return context.JSON(http.StatusConflict, Error{
+				Message: "One of parent posts doesn't exists or it was created in another thread",
+			})
+		}
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			panic(err)
+		}
+	}()
+
+	for _, post := range posts {
+		rows.Next()
+		if err := rows.Scan(&post.Id); err != nil {
+			panic(err)
+		}
 	}
 
-	if err = tx.Commit(); err != nil {
+	/*if err = tx.Commit(); err != nil {
 		panic(err)
-	}
+	}*/
 
 	return context.JSON(http.StatusCreated, posts)
 }
@@ -585,15 +625,15 @@ func ThreadGetPosts(context echo.Context) error { //TODO: too slow
 	var thread Thread
 	slugOrId := context.Param("slug_or_id")
 	if _, err := strconv.Atoi(slugOrId); err == nil {
-		if err := DBConnection.QueryRow("SELECT thread.id, forum.slug FROM thread JOIN forum ON thread.forum_slug = forum.slug WHERE thread.id = $1;",
-			slugOrId).Scan(&thread.Id, &thread.ForumSlug); err == sql.ErrNoRows {
+		if err := DBConnection.QueryRow("SELECT thread.id, thread.forum_slug FROM thread WHERE thread.id = $1;",
+			slugOrId).Scan(&thread.Id, &thread.ForumSlug); err != nil {
 			return context.JSON(http.StatusNotFound, Error{
 				Message: "Can't find thread with id " + slugOrId,
 			})
 		}
 	} else {
-		if err := DBConnection.QueryRow("SELECT thread.id, forum.slug FROM thread JOIN forum ON thread.forum_slug = forum.slug WHERE thread.slug = $1;",
-			slugOrId).Scan(&thread.Id, &thread.ForumSlug); err == sql.ErrNoRows {
+		if err := DBConnection.QueryRow("SELECT thread.id, thread.forum_slug FROM thread WHERE thread.slug = $1;",
+			slugOrId).Scan(&thread.Id, &thread.ForumSlug); err != nil {
 			return context.JSON(http.StatusNotFound, Error{
 				Message: "Can't find thread with slug " + slugOrId,
 			})
@@ -609,24 +649,24 @@ func ThreadGetPosts(context echo.Context) error { //TODO: too slow
 				thread.Id, limit)
 		} else {
 			if desc == "" {
-				rows, err = DBConnection.Query(fmt.Sprintf("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post WHERE post.posts > (SELECT post.posts FROM post WHERE post.id = $2) AND post.thread_id = $1 ORDER BY post.posts %s, post.created, post.id LIMIT $3;", desc),
+				rows, err = DBConnection.Query(fmt.Sprintf("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post JOIN post AS post2 ON post2.id = $2 AND post.posts > post2.posts WHERE post.thread_id = $1 ORDER BY post.posts %s, post.created, post.id LIMIT $3;", desc),
 					thread.Id, since, limit)
 			} else {
-				rows, err = DBConnection.Query(fmt.Sprintf("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post WHERE post.posts < (SELECT post.posts FROM post WHERE post.id = $2) AND post.thread_id = $1 ORDER BY post.posts %s, post.created, post.id LIMIT $3;", desc),
+				rows, err = DBConnection.Query(fmt.Sprintf("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post JOIN post AS post2 ON post2.id = $2 AND post.posts < post2.posts WHERE post.thread_id = $1 ORDER BY post.posts %s, post.created, post.id LIMIT $3;", desc),
 					thread.Id, since, limit)
 			}
 		}
 		break
 	case "parent_tree":
 		if since == "" {
-			rows, err = DBConnection.Query(fmt.Sprintf("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post WHERE post.posts[1] IN (SELECT DISTINCT post.posts[1] FROM post WHERE post.thread_id = $1 AND array_length(post.posts, 1) = 1 ORDER BY post.posts[1] %s LIMIT $2) ORDER BY post.posts[1] %s, post.posts, post.created, post.id;", desc, desc),
+			rows, err = DBConnection.Query(fmt.Sprintf("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post JOIN (SELECT post.id FROM post WHERE post.thread_id = $1 AND array_length(post.posts, 1) = 1 ORDER BY post.posts[1] %s LIMIT $2) root_posts ON post.posts[1] = root_posts.id ORDER BY post.posts[1] %s, post.posts, post.created, post.id;", desc, desc),
 				thread.Id, limit)
 		} else {
 			if desc == "" {
-				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post JOIN (SELECT post.posts[1] AS root FROM post WHERE post.thread_id = $1 AND post.posts[1] > (SELECT post.posts[1] FROM post WHERE post.id = $2) AND array_length(post.posts, 1) = 1 ORDER BY root LIMIT $3) root_posts ON post.posts[1] = root_posts.root ORDER BY post.posts, post.created, post.id;",
+				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post JOIN (SELECT post.posts[1] AS root FROM post JOIN post AS post2 ON post.posts[1] > post2.posts[1] WHERE post.thread_id = $1 AND post2.id = $2 AND array_length(post.posts, 1) = 1 ORDER BY root LIMIT $3) root_posts ON post.posts[1] = root_posts.root ORDER BY post.posts, post.created, post.id;",
 					thread.Id, since, limit)
 			} else {
-				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post JOIN (SELECT post.posts[1] AS root FROM post WHERE post.thread_id = $1 AND post.posts[1] < (SELECT post.posts[1] FROM post WHERE post.id = $2) AND array_length(post.posts, 1) = 1 ORDER BY root DESC LIMIT $3) root_posts ON post.posts[1] = root_posts.root ORDER BY post.posts[1] DESC, post.posts[2:], post.created, post.id;",
+				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post JOIN (SELECT post.posts[1] AS root FROM post JOIN post AS post2 ON post.posts[1] < post2.posts[1] WHERE post.thread_id = $1 AND post2.id = $2 AND array_length(post.posts, 1) = 1 ORDER BY root DESC LIMIT $3) root_posts ON post.posts[1] = root_posts.root ORDER BY post.posts[1] DESC, post.posts[2:], post.created, post.id;",
 					thread.Id, since, limit)
 			}
 		}
@@ -684,6 +724,37 @@ func ThreadVote(context echo.Context) error {
 	var thread Thread
 	slugOrId := context.Param("slug_or_id")
 	if _, err := strconv.Atoi(slugOrId); err == nil {
+		if _, err := DBConnection.Exec("INSERT INTO vote (profile_nickname, thread_id, voice) VALUES ($1, $2, $3) ON CONFLICT (profile_nickname, thread_id) DO UPDATE SET voice = $3;",
+			vote.ProfileNickname, slugOrId, vote.Voice); err != nil {
+			return context.JSON(http.StatusNotFound, Error{
+				Message: "Can't find user with nickname " + vote.ProfileNickname + " or thread with id " + slugOrId,
+			})
+		}
+
+		if err := DBConnection.QueryRow("SELECT thread.id, thread.profile_nickname, thread.created, thread.forum_slug, thread.message, thread.slug, thread.title, thread.votes FROM thread WHERE thread.id = $1;",
+			slugOrId).Scan(&thread.Id, &thread.ProfileNickname, &thread.Created, &thread.ForumSlug, &thread.Message,
+			&thread.Slug, &thread.Title, &thread.Votes); err != nil {
+			return context.JSON(http.StatusNotFound, Error{
+				Message: "Can't find thread with id " + slugOrId,
+			})
+		}
+	} else {
+		if _, err := DBConnection.Exec("INSERT INTO vote (profile_nickname, thread_id, voice) SELECT $1, thread.id, $3 FROM thread WHERE thread.slug = $2 ON CONFLICT (profile_nickname, thread_id) DO UPDATE SET voice = $3;",
+			vote.ProfileNickname, slugOrId, vote.Voice); err != nil {
+			return context.JSON(http.StatusNotFound, Error{
+				Message: "Can't find user with nickname " + vote.ProfileNickname + " or thread with slug " + slugOrId,
+			})
+		}
+
+		if err := DBConnection.QueryRow("SELECT thread.id, thread.profile_nickname, thread.created, thread.forum_slug, thread.message, thread.slug, thread.title, thread.votes FROM thread WHERE thread.slug = $1;",
+			slugOrId).Scan(&thread.Id, &thread.ProfileNickname, &thread.Created, &thread.ForumSlug, &thread.Message,
+			&thread.Slug, &thread.Title, &thread.Votes); err != nil {
+			return context.JSON(http.StatusNotFound, Error{
+				Message: "Can't find thread with slug " + slugOrId,
+			})
+		}
+	}
+	/*if _, err := strconv.Atoi(slugOrId); err == nil {
 		if err := DBConnection.QueryRow("SELECT thread.id, thread.profile_nickname, thread.created, thread.forum_slug, thread.message, thread.slug, thread.title, thread.votes FROM thread WHERE thread.id = $1;",
 			slugOrId).Scan(&thread.Id, &thread.ProfileNickname, &thread.Created, &thread.ForumSlug, &thread.Message,
 			&thread.Slug, &thread.Title, &thread.Votes); err != nil {
@@ -701,6 +772,7 @@ func ThreadVote(context echo.Context) error {
 		}
 	}
 
+
 	if _, err := DBConnection.Exec("INSERT INTO vote (profile_nickname, thread_id, voice) VALUES ($1, $2, $3) ON CONFLICT (profile_nickname, thread_id) DO UPDATE SET voice = $3;",
 		vote.ProfileNickname, thread.Id, vote.Voice); err != nil {
 		return context.JSON(http.StatusNotFound, Error{
@@ -713,7 +785,7 @@ func ThreadVote(context echo.Context) error {
 		return context.JSON(http.StatusNotFound, Error{
 			Message: "Can't find thread with id " + strconv.Itoa(int(thread.Id)),
 		})
-	}
+	}*/
 
 	return context.JSON(http.StatusOK, thread)
 }
