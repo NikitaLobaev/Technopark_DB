@@ -1,11 +1,12 @@
+\c forums;
+
 DROP SCHEMA public CASCADE;
 CREATE SCHEMA public;
 
 CREATE EXTENSION citext;
 
 CREATE TABLE profile (
-	id serial NOT NULL PRIMARY KEY,
-	nickname citext COLLATE "C" NOT NULL UNIQUE,
+	nickname citext COLLATE "C" NOT NULL PRIMARY KEY,
 	about text NOT NULL DEFAULT '',
 	email citext NOT NULL UNIQUE,
 	fullname varchar(100) NOT NULL
@@ -14,14 +15,14 @@ CREATE TABLE profile (
 CREATE TABLE forum (
 	slug citext NOT NULL PRIMARY KEY,
 	title varchar(100) NOT NULL,
-	profile_id int NOT NULL REFERENCES profile (id) ON DELETE CASCADE,
+	profile_nickname citext NOT NULL REFERENCES profile (nickname) ON DELETE CASCADE,
 	threads INT NOT NULL DEFAULT 0,
 	posts INT NOT NULL DEFAULT 0
 );
 
 CREATE TABLE thread (
 	id serial NOT NULL PRIMARY KEY,
-	profile_id int NOT NULL REFERENCES profile (id) ON DELETE CASCADE,
+	profile_nickname citext NOT NULL REFERENCES profile (nickname) ON DELETE CASCADE,
 	created timestamptz NOT NULL,
 	forum_slug citext NOT NULL REFERENCES forum (slug) ON DELETE CASCADE,
 	message text NOT NULL,
@@ -30,15 +31,9 @@ CREATE TABLE thread (
     votes INT NOT NULL DEFAULT 0
 );
 
-CREATE INDEX ON thread (forum_slug);
-
-CREATE INDEX ON thread (slug);
-
-CREATE INDEX ON thread (forum_slug, created);
-
 CREATE TABLE post (
 	id serial NOT NULL PRIMARY KEY,
-	profile_id int NOT NULL REFERENCES profile (id) ON DELETE CASCADE,
+	profile_nickname citext NOT NULL REFERENCES profile (nickname) ON DELETE CASCADE,
 	created timestamp NOT NULL,
 	is_edited boolean NOT NULL DEFAULT false,
 	message text NOT NULL,
@@ -46,17 +41,41 @@ CREATE TABLE post (
 	thread_id int NOT NULL REFERENCES thread (id) ON DELETE CASCADE
 );
 
-CREATE INDEX ON post (thread_id);
-
-/*CREATE INDEX ON post (id, thread_id)
-    INCLUDE (posts);*/
-
 CREATE TABLE vote (
-	profile_id int NOT NULL REFERENCES profile (id) ON DELETE CASCADE,
+	profile_nickname citext NOT NULL REFERENCES profile (nickname) ON DELETE CASCADE,
 	thread_id int NOT NULL REFERENCES thread (id) ON DELETE CASCADE,
 	voice INT NOT NULL,
-	PRIMARY KEY(profile_id, thread_id)
+	PRIMARY KEY(profile_nickname, thread_id)
 );
+
+/*CREATE INDEX ON thread (forum_slug);
+
+CREATE INDEX ON thread (slug);
+
+CREATE INDEX ON post (thread_id);
+
+CREATE INDEX ON post (id, thread_id)
+    INCLUDE (posts);*/
+
+CREATE INDEX ON profile (email)
+    INCLUDE (nickname);
+
+CREATE INDEX ON thread (forum_slug, created);
+
+CREATE INDEX ON thread (created, forum_slug);
+
+CREATE INDEX ON thread (profile_nickname, forum_slug);
+
+CREATE INDEX ON thread (slug, forum_slug)
+    WHERE slug != '';
+
+CREATE INDEX ON thread (id, forum_slug);
+
+CREATE INDEX ON post (thread_id, profile_nickname);
+
+CREATE INDEX ON post (thread_id, id);
+
+CREATE INDEX ON post (profile_nickname, id);
 
 CREATE FUNCTION trigger_thread_after_insert()
     RETURNS trigger AS $trigger_thread_after_insert$

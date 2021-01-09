@@ -1,4 +1,4 @@
-FROM golang:1.15.5-buster AS build
+FROM golang:latest AS build
 
 MAINTAINER Nikita Lobaev
 
@@ -8,14 +8,13 @@ COPY . /go/src/Technopark_DB
 
 WORKDIR /go/src/Technopark_DB
 
-RUN go get -d -v "github.com/labstack/echo/v4" "github.com/lib/pq"
-RUN go build -o technopark_db main.go handlers.go
+RUN go build -o technopark_db .
 
 FROM ubuntu:20.04 AS release
 
 MAINTAINER Nikita Lobaev
 
-RUN apt-get -y update && apt-get install -y locales gnupg2
+RUN apt-get update -y && apt-get install -y locales gnupg2
 RUN locale-gen en_US.UTF-8
 RUN update-locale LANG=en_US.UTF-8
 

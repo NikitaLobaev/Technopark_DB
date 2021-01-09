@@ -60,5 +60,7 @@ func main() {
 	e.POST("/api/user/:nickname/profile", UserUpdate)
 
 	e.Use(middleware.Logger())
-	_ = e.Start("0.0.0.0:5000")
+	if err = e.Start("0.0.0.0:5000"); err != nil {
+		panic(err)
+	}
 }
