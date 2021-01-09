@@ -49,26 +49,34 @@ CREATE TABLE vote (
 	PRIMARY KEY(profile_nickname, thread_id)
 );
 
-CREATE INDEX ON thread (slug);
-
-CREATE INDEX ON thread (forum_slug, profile_nickname);
-
-CREATE INDEX ON profile (email)
-    INCLUDE (nickname);
+CREATE UNIQUE INDEX ON thread (slug)
+    WHERE slug != '';
 
 CREATE INDEX ON thread (forum_slug, created);
 
+CREATE INDEX ON thread (forum_slug, profile_nickname);
+
 CREATE INDEX ON post (forum_slug, profile_nickname);
 
-CREATE INDEX ON post (id, profile_nickname);
+CREATE INDEX ON post (profile_nickname, id); --id? (PostGetOne)
 
-CREATE INDEX ON post (id, forum_slug);
-
-CREATE INDEX ON post (id, thread_id, posts);
-
-CREATE INDEX ON post (posts, id);
+CREATE INDEX ON post (forum_slug, id); --id?
 
 CREATE INDEX ON post (thread_id, posts, created, id);
+
+CREATE INDEX ON post (id, posts);
+
+CREATE INDEX ON post (thread_id, posts)
+    INCLUDE (id)
+    WHERE array_length(posts, 1) = 1;
+
+CREATE INDEX ON post (posts, created, id);
+
+CREATE INDEX ON post (thread_id, created, id);
+
+CREATE INDEX ON post (thread_id, id, created);
+
+CREATE INDEX ON profile (email, nickname);
 
 CREATE FUNCTION trigger_thread_after_insert()
     RETURNS trigger AS $trigger_thread_after_insert$
@@ -94,7 +102,6 @@ BEGIN
     ELSE
         NEW.posts[1] := NEW.id;
     END IF;
-    --NEW.posts := NEW.posts || ARRAY[NEW.id];
     RETURN NEW;
 END;
 $trigger_post_before_insert$ LANGUAGE plpgsql;
@@ -132,8 +139,10 @@ CREATE TRIGGER after_insert AFTER INSERT --TODO: точно AFTER INSERT? мож
 
 CREATE FUNCTION trigger_vote_after_update()
     RETURNS trigger AS $trigger_vote_after_update$
-BEGIN --TODO: IF OLD.voice != NEW.voice... не только здесь так?...
-    UPDATE thread SET votes = votes - OLD.voice + NEW.voice WHERE thread.id = NEW.thread_id;
+BEGIN
+    IF OLD.voice != NEW.voice THEN
+        UPDATE thread SET votes = votes - OLD.voice + NEW.voice WHERE thread.id = NEW.thread_id;
+    END IF;
     RETURN OLD;
 END;
 $trigger_vote_after_update$ LANGUAGE plpgsql;
