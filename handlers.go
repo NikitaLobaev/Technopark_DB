@@ -271,7 +271,7 @@ func PostGetOne(context echo.Context) error {
 		}
 	}
 
-	if err := DBConnection.QueryRow("SELECT post.profile_nickname, post.created, post.is_edited, post.message, post.posts, post.thread_id, post.forum_slug FROM post WHERE post.id = $1;",
+	if err := DBConnection.QueryRow("SELECT post.profile_nickname, post.created, post.is_edited, post.message, post.path, post.thread_id, post.forum_slug FROM post WHERE post.id = $1;",
 		postFull.Post.Id).Scan(&postFull.Post.ProfileNickname, &postFull.Post.Created, &postFull.Post.IsEdited,
 		&postFull.Post.Message, pq.Array(&posts), &postFull.Post.Thread, &postFull.Post.ForumSlug); err != nil {
 		return context.JSON(http.StatusNotFound, Error{
@@ -416,8 +416,9 @@ func PostsCreate(context echo.Context) error {
 	location, _ := time.LoadLocation("UTC")
 	now := time.Now().In(location).Round(time.Microsecond)
 
-	query := "INSERT INTO post (profile_nickname, created, message, posts, thread_id, forum_slug) VALUES "
-	values := []interface{}{}
+	var queryBuilder strings.Builder
+	queryBuilder.WriteString("INSERT INTO post (profile_nickname, created, message, path, thread_id, forum_slug) VALUES ")
+	var values []interface{}
 	for i, post := range posts { //TODO: возможно везде заменить создание массивов/данных в стеке на make... везде так
 		if post.Created.IsZero() {
 			post.Created = now
@@ -440,7 +441,7 @@ func PostsCreate(context echo.Context) error {
 			}
 
 		}*/
-		/*if post.Parent == 0 { //TODO: возможно, здесь можно не делать выборку profile.nickname
+		/*if post.Parent == 0 { //возможно, здесь можно не делать выборку profile.nickname
 			if err = tx.QueryRow("INSERT INTO post (profile_nickname, created, message, thread_id, forum_slug) SELECT profile.nickname, $1, $2, $3, $5 FROM profile WHERE profile.nickname = $4 RETURNING post.id;",
 				post.Created, post.Message, thread.Id, post.ProfileNickname, thread.ForumSlug).Scan(&post.Id); err != nil {
 				if err := tx.Rollback(); err != nil {
@@ -450,8 +451,8 @@ func PostsCreate(context echo.Context) error {
 					Message: "Can't find post author by nickname " + post.ProfileNickname,
 				})
 			}
-		} else { //TODO: этот запрос можно (но очень сложно) объединить в один, даже можно без транзакции... (с помощью, наверное, триггера, который будет делать эти select для переданных values... ?)
-			if err = tx.QueryRow("SELECT post.posts FROM post WHERE post.id = $1 AND post.thread_id = $2;",
+		} else { //этот запрос можно (но очень сложно) объединить в один, даже можно без транзакции... (с помощью, наверное, триггера, который будет делать эти select для переданных values... ?)
+			if err = tx.QueryRow("SELECT post.path FROM post WHERE post.id = $1 AND post.thread_id = $2;",
 				post.Parent, thread.Id).Scan(pq.Array(&posts)); err != nil {
 				if err := tx.Rollback(); err != nil {
 					panic(err)
@@ -470,18 +471,23 @@ func PostsCreate(context echo.Context) error {
 				})
 			}
 		}*/
-		//TODO: StringBuilder...
 		post.ForumSlug = thread.ForumSlug
 		post.Thread = thread.Id
 		values = append(values, post.ProfileNickname, post.Created, post.Message, pq.Array([]int64{post.Parent}), thread.Id, thread.ForumSlug)
-		query += "("
-		for j := 0; j < 6; j++ {
-			query += "$" + strconv.Itoa(i*6+j+1) + ","
+		queryBuilder.WriteRune('(')
+		for j := 0; j < 5; j++ {
+			queryBuilder.WriteRune('$')
+			queryBuilder.WriteString(strconv.Itoa(i*6 + j + 1))
+			queryBuilder.WriteRune(',')
+			//query += "$" + strconv.Itoa(i*6+j+1) + ","
 		}
-		query = query[:len(query)-1] + "),"
+		queryBuilder.WriteRune('$')
+		queryBuilder.WriteString(strconv.Itoa(i*6 + 6))
+		queryBuilder.WriteString("),")
+		//query = query[:len(query)-1] + "),"
 	}
-	query = query[:len(query)-1] + " RETURNING post.id;"
-	rows, err := DBConnection.Query(query, values...)
+	//query = query[:len(query)-1] + " RETURNING post.id;"
+	rows, err := DBConnection.Query(queryBuilder.String()[:queryBuilder.Len()-1]+" RETURNING post.id;", values...)
 	if err != nil {
 		pqErr := err.(*pq.Error)
 		switch pqErr.Code {
@@ -608,42 +614,42 @@ func ThreadGetPosts(context echo.Context) error {
 	switch context.QueryParam("sort") { //TODO: заменить " на `
 	case "tree":
 		if since == "" {
-			rows, err = DBConnection.Query(fmt.Sprintf("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post WHERE post.thread_id = $1 ORDER BY post.posts %s, post.created, post.id LIMIT $2;", desc),
+			rows, err = DBConnection.Query(fmt.Sprintf("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.path FROM post WHERE post.thread_id = $1 ORDER BY post.path %s, post.created, post.id LIMIT $2;", desc),
 				thread.Id, limit)
 		} else {
 			if desc == "" {
-				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post WHERE post.thread_id = $1 AND post.posts > (SELECT post.posts FROM post WHERE post.id = $2) ORDER BY post.posts, post.created, post.id LIMIT $3;",
+				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.path FROM post WHERE post.thread_id = $1 AND post.path > (SELECT post.path FROM post WHERE post.id = $2) ORDER BY post.path, post.created, post.id LIMIT $3;",
 					thread.Id, since, limit)
 			} else {
-				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post WHERE post.thread_id = $1 AND post.posts < (SELECT post.posts FROM post WHERE post.id = $2) ORDER BY post.posts DESC, post.created, post.id LIMIT $3;",
+				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.path FROM post WHERE post.thread_id = $1 AND post.path < (SELECT post.path FROM post WHERE post.id = $2) ORDER BY post.path DESC, post.created, post.id LIMIT $3;",
 					thread.Id, since, limit)
 			}
 		}
 		break
 	case "parent_tree":
 		if since == "" {
-			rows, err = DBConnection.Query(fmt.Sprintf("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post JOIN (SELECT post.id FROM post WHERE post.thread_id = $1 AND array_length(post.posts, 1) = 1 ORDER BY post.posts[1] %s LIMIT $2) root_posts ON post.posts[1] = root_posts.id ORDER BY post.posts[1] %s, post.posts, post.created, post.id;", desc, desc),
+			rows, err = DBConnection.Query(fmt.Sprintf("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.path FROM post JOIN (SELECT post.id FROM post WHERE post.thread_id = $1 AND array_length(post.path, 1) = 1 ORDER BY post.path[1] %s LIMIT $2) root_posts ON post.path[1] = root_posts.id ORDER BY post.path[1] %s, post.path, post.created, post.id;", desc, desc),
 				thread.Id, limit)
 		} else {
 			if desc == "" {
-				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post JOIN (SELECT post.posts[1] AS root FROM post WHERE post.thread_id = $1 AND array_length(post.posts, 1) = 1 AND post.posts[1] > (SELECT post.posts[1] FROM post WHERE post.id = $2) ORDER BY root LIMIT $3) root_posts ON post.posts[1] = root_posts.root ORDER BY post.posts, post.created, post.id;",
+				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.path FROM post JOIN (SELECT post.path[1] AS root FROM post WHERE post.thread_id = $1 AND array_length(post.path, 1) = 1 AND post.path[1] > (SELECT post.path[1] FROM post WHERE post.id = $2) ORDER BY root LIMIT $3) root_posts ON post.path[1] = root_posts.root ORDER BY post.path, post.created, post.id;",
 					thread.Id, since, limit)
 			} else {
-				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post JOIN (SELECT post.posts[1] AS root FROM post WHERE post.thread_id = $1 AND array_length(post.posts, 1) = 1 AND post.posts[1] < (SELECT post.posts[1] FROM post WHERE post.id = $2) ORDER BY root DESC LIMIT $3) root_posts ON post.posts[1] = root_posts.root ORDER BY post.posts[1] DESC, post.posts[2:], post.created, post.id;",
+				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.path FROM post JOIN (SELECT post.path[1] AS root FROM post WHERE post.thread_id = $1 AND array_length(post.path, 1) = 1 AND post.path[1] < (SELECT post.path[1] FROM post WHERE post.id = $2) ORDER BY root DESC LIMIT $3) root_posts ON post.path[1] = root_posts.root ORDER BY post.path[1] DESC, post.path[2:], post.created, post.id;",
 					thread.Id, since, limit)
 			}
 		}
 		break
 	default: //flat
 		if since == "" {
-			rows, err = DBConnection.Query(fmt.Sprintf("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post WHERE post.thread_id = $1 ORDER BY post.created %s, post.id %s LIMIT $2;", desc, desc),
+			rows, err = DBConnection.Query(fmt.Sprintf("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.path FROM post WHERE post.thread_id = $1 ORDER BY post.created %s, post.id %s LIMIT $2;", desc, desc),
 				thread.Id, limit)
 		} else {
 			if desc == "" {
-				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post WHERE post.thread_id = $1 AND post.id > $2 ORDER BY post.created, post.id LIMIT $3;",
+				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.path FROM post WHERE post.thread_id = $1 AND post.id > $2 ORDER BY post.created, post.id LIMIT $3;",
 					thread.Id, since, limit)
 			} else {
-				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post WHERE post.thread_id = $1 AND post.id < $2 ORDER BY post.created DESC, post.id DESC LIMIT $3;",
+				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.path FROM post WHERE post.thread_id = $1 AND post.id < $2 ORDER BY post.created DESC, post.id DESC LIMIT $3;",
 					thread.Id, since, limit)
 			}
 		}

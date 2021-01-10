@@ -1,5 +1,5 @@
 \c forums;
---TODO: переименовать названия внешних ключей - добавить приставку fk_ (для наглядности)
+
 DROP SCHEMA public CASCADE;
 CREATE SCHEMA public;
 
@@ -32,12 +32,12 @@ CREATE UNLOGGED TABLE thread (
 );
 
 CREATE UNLOGGED TABLE post ( --TODO: возможно, добавить доп. поле parent_post_id... ?
-	id bigserial NOT NULL PRIMARY KEY, --TODO: может быть, BIGSERIAL? + проверить все остальные типы данных и их диапазоны
+	id bigserial NOT NULL PRIMARY KEY,
 	profile_nickname citext NOT NULL REFERENCES profile (nickname) ON DELETE CASCADE,
 	created timestamp NOT NULL,
 	is_edited boolean NOT NULL DEFAULT false,
 	message text NOT NULL,
-	posts bigint[] NOT NULL, --TODO: переименовать это поле в более логически понятное
+	path bigint[] NOT NULL,
 	thread_id int NOT NULL REFERENCES thread (id) ON DELETE CASCADE,
     forum_slug citext NOT NULL REFERENCES forum (slug) ON DELETE CASCADE
 );
@@ -56,6 +56,23 @@ CREATE UNLOGGED TABLE forum_user (
 );
 
 CREATE INDEX ON profile USING hash (nickname);
+
+CREATE INDEX ON forum USING hash (slug);
+
+CREATE INDEX ON thread USING hash (forum_slug);
+CREATE INDEX ON thread (forum_slug, created);
+CREATE INDEX ON thread USING hash (slug)
+    WHERE slug != '';
+
+CREATE INDEX ON post (thread_id, path, created, id);
+CREATE INDEX ON post (thread_id, path);
+CREATE INDEX ON post (thread_id, (path[1]), path);
+CREATE INDEX ON post (thread_id, id);
+
+CREATE INDEX ON forum_user (profile_nickname, forum_slug);
+CREATE INDEX ON forum_user (forum_slug, profile_nickname);
+
+/*CREATE INDEX ON profile USING hash (nickname);
 CREATE INDEX ON profile USING hash (email);
 
 CREATE INDEX ON forum (slug, title, profile_nickname, posts, threads);
@@ -69,46 +86,13 @@ CREATE INDEX ON thread USING hash (id);
 CREATE INDEX ON post (id);
 CREATE INDEX ON post (thread_id, created, id);
 CREATE INDEX ON post (thread_id, id);
-CREATE INDEX ON post (thread_id, posts);
-CREATE INDEX ON post (thread_id, (posts[1]), posts);
-CREATE INDEX ON post ((posts[1]), posts);
+CREATE INDEX ON post (thread_id, path);
+CREATE INDEX ON post (thread_id, (path[1]), path);
+CREATE INDEX ON post ((path[1]), path);
 
 CREATE UNIQUE INDEX ON vote (thread_id, profile_nickname);
 
-CREATE INDEX ON forum_user (profile_nickname);
-
----
-/*
-CREATE UNIQUE INDEX ON thread (slug)
-    WHERE slug != '';
-
-CREATE INDEX ON thread (forum_slug, created);
-
-CREATE INDEX ON thread (forum_slug, profile_nickname);
-
-CREATE INDEX ON thread (created);
-
-CREATE INDEX ON post (forum_slug, profile_nickname);
-
-CREATE INDEX ON post (profile_nickname, id); --id? (PostGetOne)
-
-CREATE INDEX ON post (forum_slug, id); --id?
-
-CREATE INDEX ON post (thread_id, posts, created, id);
-
-CREATE INDEX ON post (id, posts);
-
-CREATE INDEX ON post (thread_id, posts)
-    INCLUDE (id)
-    WHERE array_length(posts, 1) = 1;
-
-CREATE INDEX ON post (posts, created, id);
-
-CREATE INDEX ON post (thread_id, created, id);
-
-CREATE INDEX ON post (thread_id, id, created);
-
-CREATE INDEX ON profile (email, nickname);*/
+CREATE INDEX ON forum_user (profile_nickname);*/
 
 CREATE FUNCTION trigger_thread_after_insert()
     RETURNS trigger AS $trigger_thread_after_insert$
@@ -128,13 +112,13 @@ CREATE TRIGGER after_insert AFTER INSERT
 CREATE FUNCTION trigger_post_before_insert()
     RETURNS trigger AS $trigger_post_before_insert$
 BEGIN
-    IF NEW.posts[1] <> 0 THEN
-        NEW.posts := (SELECT post.posts FROM post WHERE post.id = NEW.posts[1] AND post.thread_id = NEW.thread_id) || ARRAY[NEW.id];
-        IF array_length(NEW.posts, 1) = 1 THEN
+    IF NEW.path[1] <> 0 THEN
+        NEW.path := (SELECT post.path FROM post WHERE post.id = NEW.path[1] AND post.thread_id = NEW.thread_id) || ARRAY[NEW.id];
+        IF array_length(NEW.path, 1) = 1 THEN
             RAISE 'Parent post is in another thread';
         END IF;
     ELSE
-        NEW.posts[1] := NEW.id;
+        NEW.path[1] := NEW.id;
     END IF;
     RETURN NEW;
 END;
