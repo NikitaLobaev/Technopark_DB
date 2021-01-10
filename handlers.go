@@ -216,19 +216,18 @@ func ForumGetUsers(context echo.Context) error {
 	since := context.QueryParam("since")
 	if context.QueryParam("desc") != "true" {
 		if since == "" {
-			DBConnection.Prepare("")
-			rows, err = DBConnection.Query("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM forum_user JOIN profile ON forum_user.profile_nickname = profile.nickname WHERE forum_user.forum_slug = $1 ORDER BY profile.nickname LIMIT $2",
+			rows, err = DBConnection.Query("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM forum_user JOIN profile ON forum_user.profile_nickname = profile.nickname WHERE forum_user.forum_slug = $1 ORDER BY profile.nickname LIMIT $2;",
 				forum.Slug, limit)
 		} else {
-			rows, err = DBConnection.Query("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM forum_user JOIN profile ON forum_user.profile_nickname = profile.nickname WHERE forum_user.forum_slug = $1 AND profile.nickname > $2 ORDER BY profile.nickname LIMIT $3",
+			rows, err = DBConnection.Query("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM forum_user JOIN profile ON forum_user.profile_nickname = profile.nickname WHERE forum_user.forum_slug = $1 AND profile.nickname > $2 ORDER BY profile.nickname LIMIT $3;",
 				forum.Slug, since, limit)
 		}
 	} else {
 		if since == "" {
-			rows, err = DBConnection.Query("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM forum_user JOIN profile ON forum_user.profile_nickname = profile.nickname WHERE forum_user.forum_slug = $1 ORDER BY profile.nickname DESC LIMIT $2",
+			rows, err = DBConnection.Query("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM forum_user JOIN profile ON forum_user.profile_nickname = profile.nickname WHERE forum_user.forum_slug = $1 ORDER BY profile.nickname DESC LIMIT $2;",
 				forum.Slug, limit)
 		} else {
-			rows, err = DBConnection.Query("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM forum_user JOIN profile ON forum_user.profile_nickname = profile.nickname WHERE forum_user.forum_slug = $1 AND profile.nickname < $2 ORDER BY profile.nickname DESC LIMIT $3",
+			rows, err = DBConnection.Query("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM forum_user JOIN profile ON forum_user.profile_nickname = profile.nickname WHERE forum_user.forum_slug = $1 AND profile.nickname < $2 ORDER BY profile.nickname DESC LIMIT $3;",
 				forum.Slug, since, limit)
 		}
 	}
@@ -629,7 +628,7 @@ func ThreadGetPosts(context echo.Context) error {
 		break
 	case "parent_tree":
 		if since == "" {
-			rows, err = DBConnection.Query(fmt.Sprintf("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.path FROM post JOIN (SELECT post.id FROM post WHERE post.thread_id = $1 AND array_length(post.path, 1) = 1 ORDER BY post.path[1] %s LIMIT $2) root_posts ON post.path[1] = root_posts.id ORDER BY post.path[1] %s, post.path, post.created, post.id;", desc, desc),
+			rows, err = DBConnection.Query(fmt.Sprintf("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.path FROM post JOIN (SELECT post.id FROM post WHERE post.thread_id = $1 AND array_length(post.path, 1) = 1 ORDER BY post.path[1] %s LIMIT $2) root_posts ON post.path[1] = root_posts.id ORDER BY post.path[1] %s, post.path[2:], post.created, post.id;", desc, desc),
 				thread.Id, limit)
 		} else {
 			if desc == "" {
