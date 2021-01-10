@@ -1,18 +1,18 @@
 \c forums;
-
+--TODO: переименовать названия внешних ключей - добавить приставку fk_ (для наглядности)
 DROP SCHEMA public CASCADE;
 CREATE SCHEMA public;
 
 CREATE EXTENSION citext;
 
-CREATE TABLE profile (
+CREATE UNLOGGED TABLE profile (
 	nickname citext COLLATE "C" NOT NULL PRIMARY KEY,
 	about text NOT NULL DEFAULT '',
 	email citext NOT NULL UNIQUE,
 	fullname varchar(100) NOT NULL
 );
 
-CREATE TABLE forum (
+CREATE UNLOGGED TABLE forum (
 	slug citext NOT NULL PRIMARY KEY,
 	title varchar(100) NOT NULL,
 	profile_nickname citext NOT NULL REFERENCES profile (nickname) ON DELETE CASCADE,
@@ -20,7 +20,7 @@ CREATE TABLE forum (
 	posts INT NOT NULL DEFAULT 0
 );
 
-CREATE TABLE thread (
+CREATE UNLOGGED TABLE thread (
 	id serial NOT NULL PRIMARY KEY,
 	profile_nickname citext NOT NULL REFERENCES profile (nickname) ON DELETE CASCADE,
 	created timestamptz NOT NULL,
@@ -31,30 +31,62 @@ CREATE TABLE thread (
     votes INT NOT NULL DEFAULT 0
 );
 
-CREATE TABLE post (
-	id serial NOT NULL PRIMARY KEY,
+CREATE UNLOGGED TABLE post ( --TODO: возможно, добавить доп. поле parent_post_id... ?
+	id bigserial NOT NULL PRIMARY KEY, --TODO: может быть, BIGSERIAL? + проверить все остальные типы данных и их диапазоны
 	profile_nickname citext NOT NULL REFERENCES profile (nickname) ON DELETE CASCADE,
 	created timestamp NOT NULL,
 	is_edited boolean NOT NULL DEFAULT false,
 	message text NOT NULL,
-	posts integer[] NOT NULL,
+	posts bigint[] NOT NULL, --TODO: переименовать это поле в более логически понятное
 	thread_id int NOT NULL REFERENCES thread (id) ON DELETE CASCADE,
     forum_slug citext NOT NULL REFERENCES forum (slug) ON DELETE CASCADE
 );
 
-CREATE TABLE vote (
+CREATE UNLOGGED TABLE vote (
 	profile_nickname citext NOT NULL REFERENCES profile (nickname) ON DELETE CASCADE,
 	thread_id int NOT NULL REFERENCES thread (id) ON DELETE CASCADE,
 	voice INT NOT NULL,
 	PRIMARY KEY(profile_nickname, thread_id)
 );
 
+CREATE UNLOGGED TABLE forum_user (
+    forum_slug citext NOT NULL REFERENCES forum (slug) ON DELETE CASCADE,
+    profile_nickname citext NOT NULL REFERENCES profile (nickname) ON DELETE CASCADE,
+    PRIMARY KEY (forum_slug, profile_nickname)
+);
+
+CREATE INDEX ON profile USING hash (nickname);
+CREATE INDEX ON profile USING hash (email);
+
+CREATE INDEX ON forum (slug, title, profile_nickname, posts, threads);
+CREATE INDEX ON forum USING hash (slug);
+
+CREATE INDEX ON thread (forum_slug, created);
+CREATE INDEX ON thread (created);
+CREATE INDEX ON thread USING hash (forum_slug);
+CREATE INDEX ON thread USING hash (id);
+
+CREATE INDEX ON post (id);
+CREATE INDEX ON post (thread_id, created, id);
+CREATE INDEX ON post (thread_id, id);
+CREATE INDEX ON post (thread_id, posts);
+CREATE INDEX ON post (thread_id, (posts[1]), posts);
+CREATE INDEX ON post ((posts[1]), posts);
+
+CREATE UNIQUE INDEX ON vote (thread_id, profile_nickname);
+
+CREATE INDEX ON forum_user (profile_nickname);
+
+---
+/*
 CREATE UNIQUE INDEX ON thread (slug)
     WHERE slug != '';
 
 CREATE INDEX ON thread (forum_slug, created);
 
 CREATE INDEX ON thread (forum_slug, profile_nickname);
+
+CREATE INDEX ON thread (created);
 
 CREATE INDEX ON post (forum_slug, profile_nickname);
 
@@ -76,12 +108,14 @@ CREATE INDEX ON post (thread_id, created, id);
 
 CREATE INDEX ON post (thread_id, id, created);
 
-CREATE INDEX ON profile (email, nickname);
+CREATE INDEX ON profile (email, nickname);*/
 
 CREATE FUNCTION trigger_thread_after_insert()
     RETURNS trigger AS $trigger_thread_after_insert$
 BEGIN
     UPDATE forum SET threads = threads + 1 WHERE forum.slug = NEW.forum_slug;
+    INSERT INTO forum_user (forum_slug, profile_nickname) VALUES (NEW.forum_slug, NEW.profile_nickname)
+    ON CONFLICT DO NOTHING;
     RETURN NEW;
 END;
 $trigger_thread_after_insert$ LANGUAGE plpgsql;
@@ -97,7 +131,7 @@ BEGIN
     IF NEW.posts[1] <> 0 THEN
         NEW.posts := (SELECT post.posts FROM post WHERE post.id = NEW.posts[1] AND post.thread_id = NEW.thread_id) || ARRAY[NEW.id];
         IF array_length(NEW.posts, 1) = 1 THEN
-            RAISE 'Parent post in another thread';
+            RAISE 'Parent post is in another thread';
         END IF;
     ELSE
         NEW.posts[1] := NEW.id;
@@ -115,6 +149,8 @@ CREATE FUNCTION trigger_post_after_insert() --TODO: возможно, лучше
     RETURNS trigger AS $trigger_post_after_insert$
 BEGIN
     UPDATE forum SET posts = posts + 1 WHERE forum.slug = NEW.forum_slug;
+    INSERT INTO forum_user (forum_slug, profile_nickname) VALUES (NEW.forum_slug, NEW.profile_nickname)
+    ON CONFLICT DO NOTHING;
     RETURN NEW;
 END;
 $trigger_post_after_insert$ LANGUAGE plpgsql;
@@ -152,6 +188,6 @@ CREATE TRIGGER after_update AFTER UPDATE
     FOR EACH ROW
     EXECUTE PROCEDURE trigger_vote_after_update();
 
-CREATE EXTENSION pg_stat_statements; --TODO: при нагрузочном тестировании убрать эти 3 строчки, они только для отладки
+/*CREATE EXTENSION pg_stat_statements;
 ANALYZE;
-SELECT pg_stat_statements_reset();
+SELECT pg_stat_statements_reset();*/

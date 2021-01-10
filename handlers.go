@@ -73,6 +73,8 @@ type Status struct {
 	User   int64 `json:"user"`
 }
 
+//TODO: сгенерировать easyjson?
+
 func ForumCreate(context echo.Context) error {
 	var forum Forum
 	if err := context.Bind(&forum); err != nil {
@@ -196,7 +198,7 @@ func ForumGetThreads(context echo.Context) error {
 func ForumGetUsers(context echo.Context) error {
 	limit := context.QueryParam("limit")
 	if limit == "" {
-		limit = "NULL"
+		limit = "100"
 	}
 
 	var forum Forum
@@ -214,19 +216,19 @@ func ForumGetUsers(context echo.Context) error {
 	since := context.QueryParam("since")
 	if context.QueryParam("desc") != "true" {
 		if since == "" {
-			rows, err = DBConnection.Query(fmt.Sprintf("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM thread JOIN profile ON thread.profile_nickname = profile.nickname WHERE thread.forum_slug = $1 UNION SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM post JOIN profile ON post.profile_nickname = profile.nickname WHERE post.forum_slug = $1 ORDER BY nickname LIMIT %s;", limit),
-				forum.Slug)
+			rows, err = DBConnection.Query("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM forum_user JOIN profile ON forum_user.profile_nickname = profile.nickname WHERE forum_user.forum_slug = $1 ORDER BY profile.nickname LIMIT $2",
+				forum.Slug, limit)
 		} else {
-			rows, err = DBConnection.Query(fmt.Sprintf("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM thread JOIN profile ON thread.profile_nickname = profile.nickname WHERE thread.forum_slug = $1 AND profile.nickname > $2 UNION SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM post JOIN profile ON post.profile_nickname = profile.nickname WHERE post.forum_slug = $1 AND profile.nickname > $2 ORDER BY nickname LIMIT %s;", limit),
-				forum.Slug, since)
+			rows, err = DBConnection.Query("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM forum_user JOIN profile ON forum_user.profile_nickname = profile.nickname WHERE forum_user.forum_slug = $1 AND profile.nickname > $2 ORDER BY profile.nickname LIMIT $3",
+				forum.Slug, since, limit)
 		}
 	} else {
 		if since == "" {
-			rows, err = DBConnection.Query(fmt.Sprintf("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM thread JOIN profile ON thread.profile_nickname = profile.nickname WHERE thread.forum_slug = $1 UNION SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM post JOIN profile ON post.profile_nickname = profile.nickname WHERE post.forum_slug = $1 ORDER BY nickname DESC LIMIT %s;", limit),
-				forum.Slug)
+			rows, err = DBConnection.Query("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM forum_user JOIN profile ON forum_user.profile_nickname = profile.nickname WHERE forum_user.forum_slug = $1 ORDER BY profile.nickname DESC LIMIT $2",
+				forum.Slug, limit)
 		} else {
-			rows, err = DBConnection.Query(fmt.Sprintf("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM thread JOIN profile ON thread.profile_nickname = profile.nickname WHERE thread.forum_slug = $1 AND profile.nickname < $2 UNION SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM post JOIN profile ON post.profile_nickname = profile.nickname WHERE post.forum_slug = $1 AND profile.nickname < $2 ORDER BY nickname DESC LIMIT %s;", limit),
-				forum.Slug, since)
+			rows, err = DBConnection.Query("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM forum_user JOIN profile ON forum_user.profile_nickname = profile.nickname WHERE forum_user.forum_slug = $1 AND profile.nickname < $2 ORDER BY profile.nickname DESC LIMIT $3",
+				forum.Slug, since, limit)
 		}
 	}
 	if err != nil {
@@ -282,7 +284,7 @@ func PostGetOne(context echo.Context) error {
 
 	if user {
 		postFull.Profile = &Profile{}
-		if err := DBConnection.QueryRow("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM post JOIN profile ON post.profile_nickname = profile.nickname WHERE post.id = $1;", postFull.Post.Id).
+		if err := DBConnection.QueryRow("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM profile WHERE profile.nickname = $1;", postFull.Post.ProfileNickname).
 			Scan(&postFull.Profile.Nickname, &postFull.Profile.About, &postFull.Profile.Email,
 				&postFull.Profile.Fullname); err != nil {
 			panic(err)
@@ -291,7 +293,7 @@ func PostGetOne(context echo.Context) error {
 
 	if forum {
 		postFull.Forum = &Forum{}
-		if err := DBConnection.QueryRow("SELECT forum.slug, forum.title, forum.profile_nickname, forum.threads, forum.posts FROM post JOIN forum ON post.forum_slug = forum.slug WHERE post.id = $1;", postFull.Post.Id).
+		if err := DBConnection.QueryRow("SELECT forum.slug, forum.title, forum.profile_nickname, forum.threads, forum.posts FROM forum WHERE forum.slug = $1;", postFull.Post.ForumSlug).
 			Scan(&postFull.Forum.Slug, &postFull.Forum.Title, &postFull.Forum.ProfileNickname, &postFull.Forum.Threads,
 				&postFull.Forum.Posts); err != nil {
 			panic(err)
@@ -300,7 +302,7 @@ func PostGetOne(context echo.Context) error {
 
 	if thread {
 		postFull.Thread = &Thread{}
-		if err := DBConnection.QueryRow("SELECT thread.id, thread.profile_nickname, thread.created, thread.forum_slug, thread.message, thread.slug, thread.title, thread.votes FROM post JOIN thread ON post.thread_id = thread.id WHERE post.id = $1;", postFull.Post.Id).
+		if err := DBConnection.QueryRow("SELECT thread.id, thread.profile_nickname, thread.created, thread.forum_slug, thread.message, thread.slug, thread.title, thread.votes FROM thread WHERE thread.id = $1;", postFull.Post.Thread).
 			Scan(&postFull.Thread.Id, &postFull.Thread.ProfileNickname, &postFull.Thread.Created,
 				&postFull.Thread.ForumSlug, &postFull.Thread.Message, &postFull.Thread.Slug, &postFull.Thread.Title,
 				&postFull.Thread.Votes); err != nil {
@@ -468,6 +470,7 @@ func PostsCreate(context echo.Context) error {
 				})
 			}
 		}*/
+		//TODO: StringBuilder...
 		post.ForumSlug = thread.ForumSlug
 		post.Thread = thread.Id
 		values = append(values, post.ProfileNickname, post.Created, post.Message, pq.Array([]int64{post.Parent}), thread.Id, thread.ForumSlug)
@@ -602,17 +605,17 @@ func ThreadGetPosts(context echo.Context) error {
 
 	var rows *sql.Rows
 	var err error
-	switch context.QueryParam("sort") {
+	switch context.QueryParam("sort") { //TODO: заменить " на `
 	case "tree":
 		if since == "" {
 			rows, err = DBConnection.Query(fmt.Sprintf("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post WHERE post.thread_id = $1 ORDER BY post.posts %s, post.created, post.id LIMIT $2;", desc),
 				thread.Id, limit)
 		} else {
 			if desc == "" {
-				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post JOIN post AS post2 ON post2.id = $2 AND post.posts > post2.posts WHERE post.thread_id = $1 ORDER BY post.posts, post.created, post.id LIMIT $3;",
+				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post WHERE post.thread_id = $1 AND post.posts > (SELECT post.posts FROM post WHERE post.id = $2) ORDER BY post.posts, post.created, post.id LIMIT $3;",
 					thread.Id, since, limit)
 			} else {
-				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post JOIN post AS post2 ON post2.id = $2 AND post.posts < post2.posts WHERE post.thread_id = $1 ORDER BY post.posts DESC, post.created, post.id LIMIT $3;",
+				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post WHERE post.thread_id = $1 AND post.posts < (SELECT post.posts FROM post WHERE post.id = $2) ORDER BY post.posts DESC, post.created, post.id LIMIT $3;",
 					thread.Id, since, limit)
 			}
 		}
@@ -623,10 +626,10 @@ func ThreadGetPosts(context echo.Context) error {
 				thread.Id, limit)
 		} else {
 			if desc == "" {
-				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post JOIN (SELECT post.posts[1] AS root FROM post JOIN post AS post2 ON post.posts[1] > post2.posts[1] WHERE post.thread_id = $1 AND post2.id = $2 AND array_length(post.posts, 1) = 1 ORDER BY root LIMIT $3) root_posts ON post.posts[1] = root_posts.root ORDER BY post.posts, post.created, post.id;",
+				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post JOIN (SELECT post.posts[1] AS root FROM post WHERE post.thread_id = $1 AND array_length(post.posts, 1) = 1 AND post.posts[1] > (SELECT post.posts[1] FROM post WHERE post.id = $2) ORDER BY root LIMIT $3) root_posts ON post.posts[1] = root_posts.root ORDER BY post.posts, post.created, post.id;",
 					thread.Id, since, limit)
 			} else {
-				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post JOIN (SELECT post.posts[1] AS root FROM post JOIN post AS post2 ON post.posts[1] < post2.posts[1] WHERE post.thread_id = $1 AND post2.id = $2 AND array_length(post.posts, 1) = 1 ORDER BY root DESC LIMIT $3) root_posts ON post.posts[1] = root_posts.root ORDER BY post.posts[1] DESC, post.posts[2:], post.created, post.id;",
+				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.posts FROM post JOIN (SELECT post.posts[1] AS root FROM post WHERE post.thread_id = $1 AND array_length(post.posts, 1) = 1 AND post.posts[1] < (SELECT post.posts[1] FROM post WHERE post.id = $2) ORDER BY root DESC LIMIT $3) root_posts ON post.posts[1] = root_posts.root ORDER BY post.posts[1] DESC, post.posts[2:], post.created, post.id;",
 					thread.Id, since, limit)
 			}
 		}
@@ -648,7 +651,6 @@ func ThreadGetPosts(context echo.Context) error {
 	}
 	if err != nil {
 		panic(err)
-		return nil
 	}
 	defer func() {
 		if err := rows.Close(); err != nil {
