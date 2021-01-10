@@ -56,21 +56,30 @@ CREATE UNLOGGED TABLE forum_user (
 );
 
 CREATE INDEX ON profile USING hash (nickname);
+CREATE INDEX ON profile USING hash (email);
 
 CREATE INDEX ON forum USING hash (slug);
 
-CREATE INDEX ON thread USING hash (forum_slug);
+CREATE INDEX ON thread USING hash (id);
+--CREATE INDEX ON thread USING hash (forum_slug);
 CREATE INDEX ON thread (forum_slug, created);
 CREATE INDEX ON thread USING hash (slug)
     WHERE slug != '';
 
-CREATE INDEX ON post (thread_id, path, created, id);
+CREATE INDEX ON post (thread_id);
+CREATE INDEX ON post (path, created, id);
+CREATE INDEX ON post (path);
 CREATE INDEX ON post (thread_id, path);
-CREATE INDEX ON post (thread_id, (path[1]), path);
+CREATE INDEX ON post (thread_id, array_length(path, 1))
+    WHERE array_length(path, 1) = 1;
+CREATE INDEX ON post ((path[1]));
+CREATE INDEX ON post ((path[1]), path, created, id);
+CREATE INDEX ON post (thread_id, array_length(path, 1), (path[1]))
+    WHERE array_length(path, 1) = 1;
+CREATE INDEX ON post (created, id);
 CREATE INDEX ON post (thread_id, id);
 
-CREATE INDEX ON forum_user (profile_nickname, forum_slug);
-CREATE INDEX ON forum_user (forum_slug, profile_nickname);
+CREATE INDEX ON forum_user (profile_nickname);
 
 /*CREATE INDEX ON profile USING hash (nickname);
 CREATE INDEX ON profile USING hash (email);

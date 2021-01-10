@@ -216,6 +216,7 @@ func ForumGetUsers(context echo.Context) error {
 	since := context.QueryParam("since")
 	if context.QueryParam("desc") != "true" {
 		if since == "" {
+			DBConnection.Prepare("")
 			rows, err = DBConnection.Query("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM forum_user JOIN profile ON forum_user.profile_nickname = profile.nickname WHERE forum_user.forum_slug = $1 ORDER BY profile.nickname LIMIT $2",
 				forum.Slug, limit)
 		} else {
