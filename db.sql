@@ -55,7 +55,52 @@ CREATE UNLOGGED TABLE forum_user (
     PRIMARY KEY (forum_slug, profile_nickname)
 );
 
-CREATE INDEX ON profile USING hash (nickname);
+CREATE INDEX index1 ON forum USING hash (slug);
+
+--CREATE INDEX index2 ON thread (forum_slug);
+--CREATE INDEX index3 ON thread USING hash (forum_slug);
+--CREATE INDEX index4 ON thread (created);
+--CREATE INDEX index5 ON thread (id);
+CREATE INDEX index6 ON thread USING hash (id);
+CREATE INDEX index7 ON thread (forum_slug, created);
+
+--CREATE INDEX index8 ON forum_user (profile_nickname);
+--CREATE INDEX index9 ON forum_user USING hash (profile_nickname);
+--CREATE INDEX index10 ON forum_user (forum_slug);
+--CREATE INDEX index11 ON forum_user USING hash (forum_slug);
+--CREATE INDEX index12 ON forum_user (profile_nickname, forum_slug);
+CREATE INDEX index13 ON forum_user (forum_slug, profile_nickname);
+
+CREATE INDEX index14 ON profile (nickname);
+CREATE INDEX index15 ON profile USING hash (nickname);
+CREATE INDEX index16 ON forum USING hash (slug);
+
+--CREATE INDEX index17 ON post (id);
+CREATE INDEX index18 ON post USING hash (id);
+
+--CREATE INDEX index19 ON thread USING hash (slug);
+CREATE INDEX index20 ON thread USING hash (slug)
+    WHERE slug != '';
+
+CREATE INDEX index21 ON post (thread_id);
+--CREATE INDEX index22 ON post USING hash (thread_id);
+--CREATE INDEX index23 ON post (path, created, id);
+
+CREATE INDEX index24 ON post (path);
+CREATE INDEX index25 ON post (thread_id, path);
+
+/*CREATE INDEX index26 ON post (thread_id)
+    WHERE array_length(path, 1) = 1;*/
+CREATE INDEX index27 ON post ((path[1]));
+--CREATE INDEX index28 ON post USING hash ((path[1]));
+--CREATE INDEX index29 ON post ((path[1]), (path[2:]), created, id);
+CREATE INDEX index30 ON post (thread_id, path)
+    WHERE array_length(path, 1) = 1;
+--CREATE INDEX index31 ON post (created, id);
+
+-----
+
+/*CREATE INDEX ON profile USING hash (nickname);
 CREATE INDEX ON profile USING hash (email);
 
 CREATE INDEX ON forum USING hash (slug);
@@ -73,14 +118,19 @@ CREATE INDEX ON post (thread_id, path);
 CREATE INDEX ON post (thread_id, array_length(path, 1))
     WHERE array_length(path, 1) = 1;
 CREATE INDEX ON post ((path[1]));
---CREATE INDEX ON post ((path[1]), path, created, id);
 CREATE INDEX ON post ((path[1]), (path[2:]), created, id);
 CREATE INDEX ON post (thread_id, array_length(path, 1), (path[1]))
     WHERE array_length(path, 1) = 1;
 CREATE INDEX ON post (created, id);
 CREATE INDEX ON post (thread_id, id);
 
-CREATE INDEX ON forum_user (profile_nickname, forum_slug);
+CREATE INDEX ON forum_user (profile_nickname, forum_slug);*/
+
+--
+/*CREATE INDEX ON forum_user (forum_slug);
+CREATE INDEX ON forum_user (profile_nickname);*/
+
+--
 
 /*CREATE INDEX ON profile USING hash (nickname);
 CREATE INDEX ON profile USING hash (email);
