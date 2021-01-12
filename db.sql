@@ -5,161 +5,104 @@ CREATE SCHEMA public;
 
 CREATE EXTENSION citext;
 
+CREATE TYPE voice AS ENUM ('1', '-1');
+
 CREATE UNLOGGED TABLE profile (
-	nickname citext COLLATE "C" NOT NULL PRIMARY KEY,
-	about text NOT NULL DEFAULT '',
+    id SERIAL PRIMARY KEY,
+	nickname citext COLLATE "C" NOT NULL UNIQUE,
+	about TEXT NOT NULL DEFAULT '',
 	email citext NOT NULL UNIQUE,
-	fullname varchar(100) NOT NULL
+	fullname VARCHAR(100) NOT NULL
 );
 
 CREATE UNLOGGED TABLE forum (
-	slug citext NOT NULL PRIMARY KEY,
-	title varchar(100) NOT NULL,
-	profile_nickname citext NOT NULL REFERENCES profile (nickname) ON DELETE CASCADE,
+    id SERIAL PRIMARY KEY,
+	slug citext NOT NULL UNIQUE,
+	title VARCHAR(100) NOT NULL,
+	profile_id INT NOT NULL REFERENCES profile (id) ON DELETE CASCADE,
+	profile_nickname citext NOT NULL,
 	threads INT NOT NULL DEFAULT 0,
 	posts INT NOT NULL DEFAULT 0
 );
 
 CREATE UNLOGGED TABLE thread (
-	id serial NOT NULL PRIMARY KEY,
-	profile_nickname citext NOT NULL REFERENCES profile (nickname) ON DELETE CASCADE,
-	created timestamptz NOT NULL,
-	forum_slug citext NOT NULL REFERENCES forum (slug) ON DELETE CASCADE,
-	message text NOT NULL,
-	slug citext NOT NULL,
-	title varchar(100) NOT NULL,
+	id SERIAL PRIMARY KEY,
+    profile_id INT NOT NULL REFERENCES profile (id) ON DELETE CASCADE,
+    profile_nickname citext NOT NULL,
+	created TIMESTAMPTZ NOT NULL,
+	forum_id INT NOT NULL REFERENCES forum (id) ON DELETE CASCADE,
+	forum_slug citext NOT NULL,
+	message TEXT NOT NULL,
+	slug citext NOT NULL,--TODO: возможно, лучше будет сделать NULL UNIQUE
+	title VARCHAR(100) NOT NULL,
     votes INT NOT NULL DEFAULT 0
 );
 
 CREATE UNLOGGED TABLE post ( --TODO: возможно, добавить доп. поле parent_post_id... ?
-	id bigserial NOT NULL PRIMARY KEY,
-	profile_nickname citext NOT NULL REFERENCES profile (nickname) ON DELETE CASCADE,
-	created timestamp NOT NULL,
-	is_edited boolean NOT NULL DEFAULT false,
-	message text NOT NULL,
-	path bigint[] NOT NULL,
-	thread_id int NOT NULL REFERENCES thread (id) ON DELETE CASCADE,
-    forum_slug citext NOT NULL REFERENCES forum (slug) ON DELETE CASCADE
+	id BIGSERIAL PRIMARY KEY,
+    profile_id INT NOT NULL REFERENCES profile (id) ON DELETE CASCADE,
+    profile_nickname citext NOT NULL,
+	created TIMESTAMP NOT NULL,
+	is_edited BOOLEAN NOT NULL DEFAULT FALSE,
+	message TEXT NOT NULL,
+    posts_path BIGINT[] NOT NULL,
+	thread_id INT NOT NULL REFERENCES thread (id) ON DELETE CASCADE,
+    forum_id INT NOT NULL REFERENCES forum (id) ON DELETE CASCADE,
+    forum_slug citext NOT NULL
 );
 
 CREATE UNLOGGED TABLE vote (
-	profile_nickname citext NOT NULL REFERENCES profile (nickname) ON DELETE CASCADE,
-	thread_id int NOT NULL REFERENCES thread (id) ON DELETE CASCADE,
-	voice INT NOT NULL,
-	PRIMARY KEY(profile_nickname, thread_id)
+    profile_id INT NOT NULL REFERENCES profile (id) ON DELETE CASCADE,
+	thread_id INT NOT NULL REFERENCES thread (id) ON DELETE CASCADE,
+	voice voice NOT NULL,
+	PRIMARY KEY(profile_id, thread_id)
 );
 
 CREATE UNLOGGED TABLE forum_user (
-    forum_slug citext NOT NULL REFERENCES forum (slug) ON DELETE CASCADE,
-    profile_nickname citext NOT NULL REFERENCES profile (nickname) ON DELETE CASCADE,
-    PRIMARY KEY (forum_slug, profile_nickname)
+    forum_id INT NOT NULL REFERENCES forum (id) ON DELETE CASCADE,
+    profile_id INT NOT NULL REFERENCES profile (id) ON DELETE CASCADE,
+    PRIMARY KEY (forum_id, profile_id)
 );
 
-CREATE INDEX index1 ON forum USING hash (slug);
-
---CREATE INDEX index2 ON thread (forum_slug);
---CREATE INDEX index3 ON thread USING hash (forum_slug);
---CREATE INDEX index4 ON thread (created);
---CREATE INDEX index5 ON thread (id);
-CREATE INDEX index6 ON thread USING hash (id);
-CREATE INDEX index7 ON thread (forum_slug, created);
-
---CREATE INDEX index8 ON forum_user (profile_nickname);
---CREATE INDEX index9 ON forum_user USING hash (profile_nickname);
---CREATE INDEX index10 ON forum_user (forum_slug);
---CREATE INDEX index11 ON forum_user USING hash (forum_slug);
---CREATE INDEX index12 ON forum_user (profile_nickname, forum_slug);
-CREATE INDEX index13 ON forum_user (forum_slug, profile_nickname);
-
-CREATE INDEX index14 ON profile (nickname);
-CREATE INDEX index15 ON profile USING hash (nickname);
-CREATE INDEX index16 ON forum USING hash (slug);
-
---CREATE INDEX index17 ON post (id);
-CREATE INDEX index18 ON post USING hash (id);
-
---CREATE INDEX index19 ON thread USING hash (slug);
-CREATE INDEX index20 ON thread USING hash (slug)
-    WHERE slug != '';
-
-CREATE INDEX index21 ON post (thread_id);
---CREATE INDEX index22 ON post USING hash (thread_id);
---CREATE INDEX index23 ON post (path, created, id);
-
-CREATE INDEX index24 ON post (path);
-CREATE INDEX index25 ON post (thread_id, path);
-
-/*CREATE INDEX index26 ON post (thread_id)
-    WHERE array_length(path, 1) = 1;*/
-CREATE INDEX index27 ON post ((path[1]));
---CREATE INDEX index28 ON post USING hash ((path[1]));
---CREATE INDEX index29 ON post ((path[1]), (path[2:]), created, id);
-CREATE INDEX index30 ON post (thread_id, path)
-    WHERE array_length(path, 1) = 1;
---CREATE INDEX index31 ON post (created, id);
-
------
-
-/*CREATE INDEX ON profile USING hash (nickname);
-CREATE INDEX ON profile USING hash (email);
+CREATE INDEX ON profile USING hash (nickname);
 
 CREATE INDEX ON forum USING hash (slug);
 
+CREATE INDEX ON thread USING hash (forum_id);
 CREATE INDEX ON thread USING hash (id);
-CREATE INDEX ON thread (forum_slug, created);
-CREATE INDEX ON thread (created);
 CREATE INDEX ON thread USING hash (slug)
     WHERE slug != '';
-
-CREATE INDEX ON post (thread_id);
-CREATE INDEX ON post (path, created, id);
-CREATE INDEX ON post (path);
-CREATE INDEX ON post (thread_id, path);
-CREATE INDEX ON post (thread_id, array_length(path, 1))
-    WHERE array_length(path, 1) = 1;
-CREATE INDEX ON post ((path[1]));
-CREATE INDEX ON post ((path[1]), (path[2:]), created, id);
-CREATE INDEX ON post (thread_id, array_length(path, 1), (path[1]))
-    WHERE array_length(path, 1) = 1;
-CREATE INDEX ON post (created, id);
-CREATE INDEX ON post (thread_id, id);
-
-CREATE INDEX ON forum_user (profile_nickname, forum_slug);*/
-
---
-/*CREATE INDEX ON forum_user (forum_slug);
-CREATE INDEX ON forum_user (profile_nickname);*/
-
---
-
-/*CREATE INDEX ON profile USING hash (nickname);
-CREATE INDEX ON profile USING hash (email);
-
-CREATE INDEX ON forum (slug, title, profile_nickname, posts, threads);
-CREATE INDEX ON forum USING hash (slug);
-
-CREATE INDEX ON thread (forum_slug, created);
 CREATE INDEX ON thread (created);
-CREATE INDEX ON thread USING hash (forum_slug);
-CREATE INDEX ON thread USING hash (id);
+CREATE INDEX ON thread (forum_id, created);
 
-CREATE INDEX ON post (id);
-CREATE INDEX ON post (thread_id, created, id);
+CREATE INDEX ON post USING hash (id);
+CREATE INDEX ON post USING hash (thread_id);
+CREATE INDEX ON post USING hash (thread_id)
+    WHERE cardinality(posts_path) = 1;
+CREATE INDEX ON post USING hash ((posts_path[1]));
+CREATE INDEX ON post (created, id);
+CREATE INDEX ON post (posts_path, created, id);
+CREATE INDEX ON post ((posts_path[1]), posts_path, created, id);
+CREATE INDEX ON post ((posts_path[1]), (posts_path[2:]), created, id);
 CREATE INDEX ON post (thread_id, id);
-CREATE INDEX ON post (thread_id, path);
-CREATE INDEX ON post (thread_id, (path[1]), path);
-CREATE INDEX ON post ((path[1]), path);
+CREATE INDEX ON post (thread_id, id)
+    WHERE cardinality(posts_path) = 1;
+CREATE INDEX ON post (thread_id, posts_path, created, id);
+CREATE INDEX ON post (thread_id, (posts_path[1]))
+    WHERE cardinality(posts_path) = 1;
 
-CREATE UNIQUE INDEX ON vote (thread_id, profile_nickname);
-
-CREATE INDEX ON forum_user (profile_nickname);*/
+CREATE INDEX ON forum_user USING hash (forum_id);
+CREATE INDEX ON forum_user USING hash (profile_id);
+CREATE INDEX ON forum_user (forum_id, profile_id);
+CREATE INDEX ON forum_user (profile_id, forum_id);
 
 CREATE FUNCTION trigger_thread_after_insert()
-    RETURNS trigger AS $trigger_thread_after_insert$
+    RETURNS TRIGGER AS $trigger_thread_after_insert$
 BEGIN
     UPDATE forum SET threads = threads + 1 WHERE forum.slug = NEW.forum_slug;
-    INSERT INTO forum_user (forum_slug, profile_nickname) VALUES (NEW.forum_slug, NEW.profile_nickname)
-    ON CONFLICT DO NOTHING;
+    INSERT INTO forum_user (forum_id, profile_id)--forum_slug,
+    VALUES (NEW.forum_id, NEW.profile_id)--, NEW.forum_slug
+    ON CONFLICT (forum_id, profile_id) DO NOTHING;
     RETURN NEW;
 END;
 $trigger_thread_after_insert$ LANGUAGE plpgsql;
@@ -170,15 +113,16 @@ CREATE TRIGGER after_insert AFTER INSERT
     EXECUTE PROCEDURE trigger_thread_after_insert();
 
 CREATE FUNCTION trigger_post_before_insert()
-    RETURNS trigger AS $trigger_post_before_insert$
+    RETURNS TRIGGER AS $trigger_post_before_insert$
 BEGIN
-    IF NEW.path[1] <> 0 THEN
-        NEW.path := (SELECT post.path FROM post WHERE post.id = NEW.path[1] AND post.thread_id = NEW.thread_id) || ARRAY[NEW.id];
-        IF array_length(NEW.path, 1) = 1 THEN
+    IF NEW.posts_path[1] <> 0 THEN
+        NEW.posts_path := (SELECT post.posts_path FROM post WHERE post.id = NEW.posts_path[1]
+                                                              AND post.thread_id = NEW.thread_id) || ARRAY[NEW.id];
+        IF cardinality(NEW.posts_path) = 1 THEN
             RAISE 'Parent post is in another thread';
         END IF;
     ELSE
-        NEW.path[1] := NEW.id;
+        NEW.posts_path[1] := NEW.id;
     END IF;
     RETURN NEW;
 END;
@@ -189,12 +133,13 @@ CREATE TRIGGER before_insert BEFORE INSERT
     FOR EACH ROW
     EXECUTE PROCEDURE trigger_post_before_insert();
 
-CREATE FUNCTION trigger_post_after_insert() --TODO: возможно, лучше объединить этот триггер в один (вместе с trigger_post_before_insert)
-    RETURNS trigger AS $trigger_post_after_insert$
+CREATE FUNCTION trigger_post_after_insert()
+    RETURNS TRIGGER AS $trigger_post_after_insert$
 BEGIN
     UPDATE forum SET posts = posts + 1 WHERE forum.slug = NEW.forum_slug;
-    INSERT INTO forum_user (forum_slug, profile_nickname) VALUES (NEW.forum_slug, NEW.profile_nickname)
-    ON CONFLICT DO NOTHING;
+    INSERT INTO forum_user (forum_id, profile_id)--, forum_slug
+    VALUES (NEW.forum_id, NEW.profile_id)--, NEW.forum_slug
+    ON CONFLICT (forum_id, profile_id) DO NOTHING;
     RETURN NEW;
 END;
 $trigger_post_after_insert$ LANGUAGE plpgsql;
@@ -204,24 +149,45 @@ CREATE TRIGGER after_insert AFTER INSERT
     FOR EACH ROW
     EXECUTE PROCEDURE trigger_post_after_insert();
 
-CREATE FUNCTION trigger_vote_after_insert()
-    RETURNS trigger AS $trigger_vote_after_insert$
+CREATE FUNCTION trigger_post_before_update()
+    RETURNS TRIGGER AS $trigger_post_before_insert$
 BEGIN
-    UPDATE thread SET votes = votes + NEW.voice WHERE thread.id = NEW.thread_id;
+    NEW.is_edited := TRUE;
+    RETURN NEW;
+END;
+$trigger_post_before_insert$ LANGUAGE plpgsql;
+
+CREATE TRIGGER before_update BEFORE UPDATE
+    ON post
+    FOR EACH ROW
+EXECUTE PROCEDURE trigger_post_before_update();
+
+CREATE FUNCTION trigger_vote_after_insert()
+    RETURNS TRIGGER AS $trigger_vote_after_insert$
+BEGIN
+    IF NEW.voice = '1' THEN
+        UPDATE thread SET votes = votes + 1 WHERE thread.id = NEW.thread_id;
+    ELSE
+        UPDATE thread SET votes = votes - 1 WHERE thread.id = NEW.thread_id;
+    END IF;
     RETURN NEW;
 END;
 $trigger_vote_after_insert$ LANGUAGE plpgsql;
 
-CREATE TRIGGER after_insert AFTER INSERT --TODO: точно AFTER INSERT? может быть BEFORE INSERT?...
+CREATE TRIGGER after_insert AFTER INSERT
     ON vote
     FOR EACH ROW
     EXECUTE PROCEDURE trigger_vote_after_insert();
 
 CREATE FUNCTION trigger_vote_after_update()
-    RETURNS trigger AS $trigger_vote_after_update$
+    RETURNS TRIGGER AS $trigger_vote_after_update$
 BEGIN
     IF OLD.voice != NEW.voice THEN
-        UPDATE thread SET votes = votes - OLD.voice + NEW.voice WHERE thread.id = NEW.thread_id;
+        IF NEW.voice = '1' THEN
+            UPDATE thread SET votes = votes + 2 WHERE thread.id = NEW.thread_id;
+        ELSE
+            UPDATE thread SET votes = votes - 2 WHERE thread.id = NEW.thread_id;
+        END IF;
     END IF;
     RETURN OLD;
 END;
