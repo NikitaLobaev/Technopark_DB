@@ -19,8 +19,8 @@ CREATE UNLOGGED TABLE forum (
     id SERIAL PRIMARY KEY,
 	slug citext NOT NULL UNIQUE,
 	title VARCHAR(100) NOT NULL,
-	profile_id INT NOT NULL REFERENCES profile (id) ON DELETE CASCADE,
-	profile_nickname citext NOT NULL,
+	profile_id INT NOT NULL REFERENCES profile (id) ON DELETE CASCADE, --возможно, здесь можно на nickname ссылаться
+	profile_nickname citext NOT NULL REFERENCES profile (nickname) ON DELETE CASCADE,
 	threads INT NOT NULL DEFAULT 0,
 	posts INT NOT NULL DEFAULT 0
 );
@@ -28,34 +28,36 @@ CREATE UNLOGGED TABLE forum (
 CREATE UNLOGGED TABLE thread (
 	id SERIAL PRIMARY KEY,
     profile_id INT NOT NULL REFERENCES profile (id) ON DELETE CASCADE,
-    profile_nickname citext NOT NULL,
+    profile_nickname citext NOT NULL REFERENCES profile (nickname) ON DELETE CASCADE,
 	created TIMESTAMPTZ NOT NULL,
 	forum_id INT NOT NULL REFERENCES forum (id) ON DELETE CASCADE,
-	forum_slug citext NOT NULL,
+	forum_slug citext NOT NULL REFERENCES forum (slug) ON DELETE CASCADE,
 	message TEXT NOT NULL,
 	slug citext NOT NULL,--TODO: возможно, лучше будет сделать NULL UNIQUE
 	title VARCHAR(100) NOT NULL,
     votes INT NOT NULL DEFAULT 0
 );
 
-CREATE UNLOGGED TABLE post ( --TODO: возможно, добавить доп. поле parent_post_id... ?
+CREATE UNLOGGED TABLE post (
 	id BIGSERIAL PRIMARY KEY,
     profile_id INT NOT NULL REFERENCES profile (id) ON DELETE CASCADE,
-    profile_nickname citext NOT NULL,
+    profile_nickname citext NOT NULL REFERENCES profile (nickname) ON DELETE CASCADE,
 	created TIMESTAMP NOT NULL,
 	is_edited BOOLEAN NOT NULL DEFAULT FALSE,
 	message TEXT NOT NULL,
-    posts_path BIGINT[] NOT NULL,
+    post_root_id BIGINT NOT NULL REFERENCES post (id) ON DELETE CASCADE,
+	post_parent_id BIGINT REFERENCES post (id) ON DELETE CASCADE,
+    path_ BIGINT[] NOT NULL,
 	thread_id INT NOT NULL REFERENCES thread (id) ON DELETE CASCADE,
     forum_id INT NOT NULL REFERENCES forum (id) ON DELETE CASCADE,
-    forum_slug citext NOT NULL
+    forum_slug citext NOT NULL REFERENCES forum (slug) ON DELETE CASCADE
 );
 
 CREATE UNLOGGED TABLE vote (
     profile_id INT NOT NULL REFERENCES profile (id) ON DELETE CASCADE,
 	thread_id INT NOT NULL REFERENCES thread (id) ON DELETE CASCADE,
 	voice voice NOT NULL,
-	PRIMARY KEY(profile_id, thread_id)
+	PRIMARY KEY (profile_id, thread_id)
 );
 
 CREATE UNLOGGED TABLE forum_user (
@@ -64,44 +66,38 @@ CREATE UNLOGGED TABLE forum_user (
     PRIMARY KEY (forum_id, profile_id)
 );
 
+--TODO: возможно, можно добавить представления для некоторых запросов, может быть, дерево построения запроса уже будет в бд?...
+
 CREATE INDEX ON profile USING hash (nickname);
 
 CREATE INDEX ON forum USING hash (slug);
 
-CREATE INDEX ON thread USING hash (forum_id);
+CREATE INDEX ON thread (forum_id, created);
 CREATE INDEX ON thread USING hash (id);
 CREATE INDEX ON thread USING hash (slug)
-    WHERE slug != '';
-CREATE INDEX ON thread (created);
-CREATE INDEX ON thread (forum_id, created);
+    WHERE slug != ''; --TODO: может быть, можно убрать, т.к. отсекается всего одна запись из хеш-индекса
 
 CREATE INDEX ON post USING hash (id);
 CREATE INDEX ON post USING hash (thread_id);
-CREATE INDEX ON post USING hash (thread_id)
-    WHERE cardinality(posts_path) = 1;
-CREATE INDEX ON post USING hash ((posts_path[1]));
-CREATE INDEX ON post (created, id);
-CREATE INDEX ON post (posts_path, created, id);
-CREATE INDEX ON post ((posts_path[1]), posts_path, created, id);
-CREATE INDEX ON post ((posts_path[1]), (posts_path[2:]), created, id);
-CREATE INDEX ON post (thread_id, id);
-CREATE INDEX ON post (thread_id, id)
-    WHERE cardinality(posts_path) = 1;
-CREATE INDEX ON post (thread_id, posts_path, created, id);
-CREATE INDEX ON post (thread_id, (posts_path[1]))
-    WHERE cardinality(posts_path) = 1;
+--CREATE INDEX ON post (thread_id, path_, created, id);
+CREATE INDEX ON post (thread_id, path_);
+CREATE INDEX ON post USING hash (post_root_id);
+CREATE INDEX ON post (thread_id, post_root_id, id)
+    WHERE post_parent_id IS NULL;
+CREATE INDEX ON post (thread_id, id); --flat...
+/*CREATE INDEX ON post (path_, created, id);
+CREATE INDEX ON post (post_root_id, path_, created, id);
+CREATE INDEX ON post (created, id);*/
 
 CREATE INDEX ON forum_user USING hash (forum_id);
 CREATE INDEX ON forum_user USING hash (profile_id);
-CREATE INDEX ON forum_user (forum_id, profile_id);
-CREATE INDEX ON forum_user (profile_id, forum_id);
 
 CREATE FUNCTION trigger_thread_after_insert()
     RETURNS TRIGGER AS $trigger_thread_after_insert$
 BEGIN
     UPDATE forum SET threads = threads + 1 WHERE forum.slug = NEW.forum_slug;
-    INSERT INTO forum_user (forum_id, profile_id)--forum_slug,
-    VALUES (NEW.forum_id, NEW.profile_id)--, NEW.forum_slug
+    INSERT INTO forum_user (forum_id, profile_id)
+    VALUES (NEW.forum_id, NEW.profile_id)
     ON CONFLICT (forum_id, profile_id) DO NOTHING;
     RETURN NEW;
 END;
@@ -115,14 +111,17 @@ CREATE TRIGGER after_insert AFTER INSERT
 CREATE FUNCTION trigger_post_before_insert()
     RETURNS TRIGGER AS $trigger_post_before_insert$
 BEGIN
-    IF NEW.posts_path[1] <> 0 THEN
-        NEW.posts_path := (SELECT post.posts_path FROM post WHERE post.id = NEW.posts_path[1]
-                                                              AND post.thread_id = NEW.thread_id) || ARRAY[NEW.id];
-        IF cardinality(NEW.posts_path) = 1 THEN
+    IF NEW.post_parent_id != 0 THEN
+        NEW.path_ := (SELECT post.path_ FROM post WHERE post.thread_id = NEW.thread_id
+                                                    AND post.id = NEW.post_parent_id) || ARRAY[NEW.id];
+        IF cardinality(NEW.path_) = 1 THEN
             RAISE 'Parent post is in another thread';
         END IF;
+        NEW.post_root_id := NEW.path_[1];
     ELSE
-        NEW.posts_path[1] := NEW.id;
+        NEW.post_root_id := NEW.id;
+        NEW.post_parent_id := NULL;
+        NEW.path_ := ARRAY[NEW.id];
     END IF;
     RETURN NEW;
 END;
@@ -136,9 +135,9 @@ CREATE TRIGGER before_insert BEFORE INSERT
 CREATE FUNCTION trigger_post_after_insert()
     RETURNS TRIGGER AS $trigger_post_after_insert$
 BEGIN
-    UPDATE forum SET posts = posts + 1 WHERE forum.slug = NEW.forum_slug;
-    INSERT INTO forum_user (forum_id, profile_id)--, forum_slug
-    VALUES (NEW.forum_id, NEW.profile_id)--, NEW.forum_slug
+    UPDATE forum SET posts = posts + 1 WHERE forum.id = NEW.forum_id;
+    INSERT INTO forum_user (forum_id, profile_id)
+    VALUES (NEW.forum_id, NEW.profile_id)
     ON CONFLICT (forum_id, profile_id) DO NOTHING;
     RETURN NEW;
 END;
