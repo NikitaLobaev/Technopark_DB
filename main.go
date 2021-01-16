@@ -3,7 +3,6 @@ package main
 import (
 	"database/sql"
 	"github.com/labstack/echo/v4"
-	_ "github.com/lib/pq"
 )
 
 var DBConnection *sql.DB
@@ -61,7 +60,7 @@ func main() {
 	e.POST("/api/user/:nickname/profile", UserUpdate)
 
 	//e.Use(middleware.Logger())
-	if err = e.Start("0.0.0.0:5000"); err != nil {
+	if err := e.Start("0.0.0.0:5000"); err != nil {
 		panic(err)
 	}
 }

@@ -102,11 +102,12 @@ BEGIN
         IF cardinality(NEW.path_) = 1 THEN
             RAISE 'Parent post is in another thread';
         END IF;
+        NEW.post_root_id := NEW.path_[1];
     ELSE
         NEW.post_parent_id := NULL;
+        NEW.post_root_id := NEW.id;
         NEW.path_ := ARRAY[NEW.id];
     END IF;
-    NEW.post_root_id := NEW.id;
     RETURN NEW;
 END;
 $trigger_post_before_insert$ LANGUAGE plpgsql;

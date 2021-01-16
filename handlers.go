@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/labstack/echo/v4"
+	_ "github.com/lib/pq"
 	"io/ioutil"
 	"net/http"
 	"strconv"
@@ -12,10 +13,12 @@ import (
 	"time"
 )
 
+//easyjson:json
 type Error struct {
 	Message string `json:"message"`
 }
 
+//easyjson:json
 type Profile struct {
 	Id       int32  `json:"-"`
 	Nickname string `json:"nickname"`
@@ -24,6 +27,7 @@ type Profile struct {
 	Fullname string `json:"fullname"`
 }
 
+//easyjson:json
 type Forum struct {
 	Id              int32  `json:"-"`
 	Slug            string `json:"slug"`
@@ -34,6 +38,7 @@ type Forum struct {
 	Posts           int64  `json:"posts"`
 }
 
+//easyjson:json
 type Thread struct {
 	Id              int32     `json:"id"`
 	ProfileId       int32     `json:"-"`
@@ -47,6 +52,7 @@ type Thread struct {
 	Votes           int64     `json:"votes"`
 }
 
+//easyjson:json
 type Post struct {
 	Id              int64     `json:"id"`
 	ProfileId       int32     `json:"-"`
@@ -60,6 +66,7 @@ type Post struct {
 	Thread          int32     `json:"thread"`
 }
 
+//easyjson:json
 type PostFull struct {
 	Profile *Profile `json:"author,omitempty"`
 	Forum   *Forum   `json:"forum,omitempty"`
@@ -67,6 +74,7 @@ type PostFull struct {
 	Thread  *Thread  `json:"thread,omitempty"`
 }
 
+//easyjson:json
 type Vote struct {
 	ProfileId       int32  `json:"-"`
 	ProfileNickname string `json:"nickname"`
@@ -74,6 +82,7 @@ type Vote struct {
 	Voice           int8   `json:"voice"`
 }
 
+//easyjson:json
 type Status struct {
 	Forum  int64 `json:"forum"`
 	Post   int64 `json:"post"`
@@ -91,7 +100,7 @@ func Api(_ echo.Context) error {
 			panic(err)
 		}
 	}
-	fmt.Println("Api end.")
+	//fmt.Println("Api end.")
 
 	return nil
 }
