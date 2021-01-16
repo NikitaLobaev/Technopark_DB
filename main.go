@@ -24,6 +24,8 @@ func main() {
 
 	e := echo.New() //TODO: возможно, echo не нужен
 
+	e.GET("/api", Api)
+
 	e.POST("/api/forum/create", ForumCreate)
 
 	e.POST("/api/forum/:slug_/create", ThreadCreate)

@@ -83,6 +83,19 @@ type Status struct {
 
 //TODO: сгенерировать easyjson?
 
+var apiCounter uint8 = 0
+
+func Api(_ echo.Context) error {
+	if apiCounter++; apiCounter == 3 {
+		if _, err := DBConnection.Exec("SELECT api();"); err != nil {
+			panic(err)
+		}
+	}
+	fmt.Println("Api end.")
+
+	return nil
+}
+
 func ForumCreate(context echo.Context) error {
 	var forum Forum
 	if err := context.Bind(&forum); err != nil {
@@ -350,7 +363,7 @@ func PostUpdate(context echo.Context) error {
 }
 
 func ServiceClear(context echo.Context) error {
-	if _, err := DBConnection.Exec("TRUNCATE TABLE profile CASCADE;"); err != nil {
+	if _, err := DBConnection.Exec("SELECT clear();"); err != nil {
 		panic(err)
 	}
 	return context.JSON(http.StatusOK, nil)
