@@ -1,5 +1,16 @@
 \c forums;
 
+ALTER SYSTEM SET wal_level = minimal;
+ALTER SYSTEM SET fsync = FALSE;
+ALTER SYSTEM SET full_page_writes = FALSE;
+ALTER SYSTEM SET synchronous_commit = FALSE;
+ALTER SYSTEM SET archive_mode = FALSE;
+ALTER SYSTEM SET shared_buffers = '3 GB';
+ALTER SYSTEM SET effective_cache_size = '8 GB';
+ALTER SYSTEM SET work_mem = '32 MB';
+
+SELECT pg_reload_conf();
+
 DROP SCHEMA public CASCADE;
 CREATE SCHEMA public;
 
@@ -8,62 +19,55 @@ CREATE EXTENSION citext;
 CREATE TYPE voice AS ENUM ('1', '-1');
 
 CREATE UNLOGGED TABLE profile (
-    id SERIAL PRIMARY KEY,
-	nickname citext COLLATE "C" NOT NULL UNIQUE,
+	nickname citext COLLATE "C" NOT NULL PRIMARY KEY,
 	about TEXT NOT NULL DEFAULT '',
 	email citext NOT NULL UNIQUE,
-	fullname TEXT NOT NULL --VARCHAR(100)
+	fullname TEXT NOT NULL
 );
 
 CREATE UNLOGGED TABLE forum (
-    id SERIAL PRIMARY KEY,
-	slug citext NOT NULL UNIQUE,
-	title TEXT NOT NULL, --VARCHAR(100)
-	profile_id INT NOT NULL, --REFERENCES profile (id) ON DELETE CASCADE,
-	profile_nickname citext NOT NULL, --REFERENCES profile (nickname) ON DELETE CASCADE,
+	slug citext NOT NULL PRIMARY KEY,
+	title TEXT NOT NULL,
+	profile_nickname citext NOT NULL,
 	threads INT NOT NULL DEFAULT 0,
 	posts INT NOT NULL DEFAULT 0
 );
 
 CREATE UNLOGGED TABLE thread (
 	id SERIAL PRIMARY KEY,
-    profile_id INT NOT NULL, --REFERENCES profile (id) ON DELETE CASCADE,
-    profile_nickname citext NOT NULL, --REFERENCES profile (nickname) ON DELETE CASCADE,
+    profile_nickname citext NOT NULL,
 	created TIMESTAMPTZ NOT NULL,
-	forum_id INT NOT NULL, --REFERENCES forum (id) ON DELETE CASCADE,
-	forum_slug citext NOT NULL, --REFERENCES forum (slug) ON DELETE CASCADE,
+	forum_slug citext NOT NULL,
 	message TEXT NOT NULL,
-	slug citext NOT NULL, --TODO: возможно, лучше будет сделать NULL UNIQUE
-	title TEXT NOT NULL, --VARCHAR(100)
+	slug citext,
+	title TEXT NOT NULL,
     votes INT NOT NULL DEFAULT 0
 );
 
 CREATE UNLOGGED TABLE post (
 	id BIGSERIAL PRIMARY KEY,
-    profile_id INT NOT NULL, --REFERENCES profile (id) ON DELETE CASCADE,
-    profile_nickname citext NOT NULL, --REFERENCES profile (nickname) ON DELETE CASCADE,
+    profile_nickname citext NOT NULL,
 	created TIMESTAMP NOT NULL,
 	is_edited BOOLEAN NOT NULL DEFAULT FALSE,
 	message TEXT NOT NULL,
-    post_root_id BIGINT NOT NULL, --REFERENCES post (id) ON DELETE CASCADE,
-	post_parent_id BIGINT, --REFERENCES post (id) ON DELETE CASCADE,
+    post_root_id BIGINT NOT NULL,
+	post_parent_id BIGINT,
     path_ BIGINT[] NOT NULL,
-	thread_id INT NOT NULL, --REFERENCES thread (id) ON DELETE CASCADE,
-    forum_id INT NOT NULL, --REFERENCES forum (id) ON DELETE CASCADE,
-    forum_slug citext NOT NULL --REFERENCES forum (slug) ON DELETE CASCADE
+	thread_id INT NOT NULL,
+    forum_slug citext NOT NULL
 );
 
 CREATE UNLOGGED TABLE vote (
-    profile_id INT NOT NULL, --REFERENCES profile (id) ON DELETE CASCADE,
-	thread_id INT NOT NULL, --REFERENCES thread (id) ON DELETE CASCADE,
-	voice voice NOT NULL,
-	PRIMARY KEY (profile_id, thread_id)
+    profile_nickname citext NOT NULL,
+	thread_id INT NOT NULL,
+    PRIMARY KEY (profile_nickname, thread_id),
+	voice voice NOT NULL
 );
 
 CREATE UNLOGGED TABLE forum_user (
-    forum_id INT NOT NULL, --REFERENCES forum (id) ON DELETE CASCADE,
-    profile_id INT NOT NULL, --REFERENCES profile (id) ON DELETE CASCADE,
-    PRIMARY KEY (forum_id, profile_id)
+    forum_slug citext NOT NULL,
+    profile_nickname citext NOT NULL,
+    PRIMARY KEY (forum_slug, profile_nickname)
 );
 
 CREATE INDEX ON profile USING hash (nickname);
@@ -73,30 +77,29 @@ CREATE INDEX ON forum USING hash (slug);
 
 CREATE INDEX ON thread USING hash (id);
 CREATE INDEX ON thread USING hash (slug)
-    WHERE slug != '';
-CREATE INDEX ON thread USING hash (forum_id);
-CREATE INDEX ON thread (forum_id, created);
-CREATE INDEX ON thread (created);
+    WHERE slug IS NOT NULL;
+CREATE INDEX ON thread USING hash (forum_slug);
 
 CREATE INDEX ON post USING hash (id);
 CREATE INDEX ON post USING hash (thread_id);
-CREATE INDEX ON post (thread_id, path_);
+CREATE INDEX ON post (thread_id, path_, created, id);
 CREATE INDEX ON post USING hash (post_root_id);
 CREATE INDEX ON post (thread_id, post_root_id)
     WHERE post_parent_id IS NULL;
-CREATE INDEX ON post (thread_id, id);
+CREATE INDEX ON post (post_root_id, path_, created);
+CREATE INDEX ON post (thread_id, id, created);
 
-CREATE INDEX ON forum_user USING hash (forum_id);
-CREATE INDEX ON forum_user USING hash (profile_id);
+CREATE INDEX ON forum_user USING hash (forum_slug);
+CREATE INDEX ON forum_user USING hash (profile_nickname);
 
 CREATE FUNCTION trigger_thread_after_insert()
     RETURNS TRIGGER
 AS $trigger_thread_after_insert$
 BEGIN
     UPDATE forum SET threads = threads + 1 WHERE forum.slug = NEW.forum_slug;
-    INSERT INTO forum_user (forum_id, profile_id)
-    VALUES (NEW.forum_id, NEW.profile_id)
-    ON CONFLICT (forum_id, profile_id) DO NOTHING;
+    INSERT INTO forum_user (forum_slug, profile_nickname)
+    VALUES (NEW.forum_slug, NEW.profile_nickname)
+    ON CONFLICT (forum_slug, profile_nickname) DO NOTHING;
     RETURN NEW;
 END;
 $trigger_thread_after_insert$ LANGUAGE plpgsql;
@@ -135,10 +138,10 @@ CREATE FUNCTION trigger_post_after_insert()
     RETURNS TRIGGER
 AS $trigger_post_after_insert$
 BEGIN
-    UPDATE forum SET posts = posts + 1 WHERE forum.id = NEW.forum_id;
-    INSERT INTO forum_user (forum_id, profile_id)
-    VALUES (NEW.forum_id, NEW.profile_id)
-    ON CONFLICT (forum_id, profile_id) DO NOTHING;
+    UPDATE forum SET posts = posts + 1 WHERE forum.slug = NEW.forum_slug;
+    INSERT INTO forum_user (forum_slug, profile_nickname)
+    VALUES (NEW.forum_slug, NEW.profile_nickname)
+    ON CONFLICT (forum_slug, profile_nickname) DO NOTHING;
     RETURN NEW;
 END;
 $trigger_post_after_insert$ LANGUAGE plpgsql;
@@ -202,7 +205,7 @@ CREATE TRIGGER after_update AFTER UPDATE
 
 CREATE FUNCTION clear()
     RETURNS VOID
-AS $api$
+AS $clear$
 BEGIN
     TRUNCATE TABLE profile RESTART IDENTITY CASCADE;
     TRUNCATE TABLE forum RESTART IDENTITY CASCADE;
@@ -211,7 +214,7 @@ BEGIN
     TRUNCATE TABLE vote RESTART IDENTITY CASCADE;
     TRUNCATE TABLE forum_user RESTART IDENTITY CASCADE;
 END;
-$api$ LANGUAGE plpgsql;
+$clear$ LANGUAGE plpgsql;
 
 /*CREATE EXTENSION pg_stat_statements;
 ANALYZE;

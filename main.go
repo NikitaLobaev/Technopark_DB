@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
 	"time"
 )
 
@@ -60,7 +59,7 @@ func main() {
 
 	e.POST("/api/user/:nickname/profile", UserUpdate)
 
-	e.Use(middleware.Logger(), AccessLog)
+	//e.Use(middleware.Logger(), AccessLog)
 	if err := e.Start("0.0.0.0:5000"); err != nil {
 		panic(err)
 	}
