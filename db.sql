@@ -74,6 +74,20 @@ CREATE INDEX ON forum USING hash (slug);
 CREATE INDEX ON thread USING hash (id);
 CREATE INDEX ON thread USING hash (slug)
     WHERE slug != '';
+CREATE INDEX ON thread USING hash (forum_id);
+CREATE INDEX ON thread (forum_id, created);
+CREATE INDEX ON thread (created);
+
+CREATE INDEX ON post USING hash (id);
+CREATE INDEX ON post USING hash (thread_id);
+CREATE INDEX ON post (thread_id, path_);
+CREATE INDEX ON post USING hash (post_root_id);
+CREATE INDEX ON post (thread_id, post_root_id)
+    WHERE post_parent_id IS NULL;
+CREATE INDEX ON post (thread_id, id);
+
+CREATE INDEX ON forum_user USING hash (forum_id);
+CREATE INDEX ON forum_user USING hash (profile_id);
 
 CREATE FUNCTION trigger_thread_after_insert()
     RETURNS TRIGGER
@@ -196,42 +210,6 @@ BEGIN
     TRUNCATE TABLE post RESTART IDENTITY CASCADE;
     TRUNCATE TABLE vote RESTART IDENTITY CASCADE;
     TRUNCATE TABLE forum_user RESTART IDENTITY CASCADE;
-END;
-$api$ LANGUAGE plpgsql;
-
-CREATE FUNCTION api()
-    RETURNS VOID
-AS $api$
-BEGIN
-    --CREATE INDEX ON profile USING hash (nickname);
-    --CREATE INDEX ON profile USING hash (email);
-
-    --CREATE INDEX ON forum USING hash (slug);
-
-    --CREATE INDEX ON thread USING hash (id);
-    --CREATE INDEX ON thread USING hash (slug)
-    --    WHERE slug != '';
-    CREATE INDEX ON thread USING hash (forum_id);
-    CREATE INDEX ON thread (forum_id, created);
-    CREATE INDEX ON thread (created);
-
-    CREATE INDEX ON post USING hash (id);
-    CREATE INDEX ON post USING hash (thread_id);
-    CREATE INDEX ON post (thread_id, path_, created, id);
-    CREATE INDEX ON post USING hash (post_root_id);
-    CREATE INDEX ON post (post_root_id, path_, created, id);
-    CREATE INDEX ON post (thread_id, created, id);
-    CREATE INDEX ON post (path_, created, id);
-    CREATE INDEX ON post (thread_id, id)
-        WHERE post_parent_id IS NULL;
-    CREATE INDEX ON post (thread_id, post_root_id)
-        WHERE post_parent_id IS NULL;
-    CREATE INDEX ON post (thread_id, id);
-    CREATE INDEX ON post (created, id);
-
-    CREATE INDEX ON forum_user USING hash (forum_id);
-    CREATE INDEX ON forum_user USING hash (profile_id);
-    ANALYZE;
 END;
 $api$ LANGUAGE plpgsql;
 
