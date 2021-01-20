@@ -438,20 +438,27 @@ func PostsCreate(context echo.Context) error {
 	now := time.Now().In(location).Round(time.Microsecond)
 
 	tx, err := DBConnection.Begin()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 	if err != nil {
 		panic(err)
 	}
+
+	statement, err := tx.Prepare("INSERT INTO post (profile_nickname, created, message, post_parent_id, thread_id, forum_slug) SELECT profile.nickname, $2, $3, $4, $5, $6 FROM profile WHERE profile.nickname = $1 RETURNING post.id;")
+	defer func() {
+		if err := statement.Close(); err != nil {
+			panic(err)
+		}
+	}()
 
 	for _, post := range posts { //TODO: возможно везде заменить создание массивов/данных в стеке на make... везде так
 		if post.Created.IsZero() {
 			post.Created = now
 		}
 
-		if err = tx.QueryRow("INSERT INTO post (profile_nickname, created, message, post_parent_id, thread_id, forum_slug) SELECT profile.nickname, $2, $3, $4, $5, $6 FROM profile WHERE profile.nickname = $1 RETURNING post.id;",
-			post.ProfileNickname, post.Created, post.Message, post.ParentPost, thread.Id, thread.ForumSlug).Scan(&post.Id); err != nil {
-			if err := tx.Rollback(); err != nil {
-				panic(err)
-			}
+		if err = statement.QueryRow(post.ProfileNickname, post.Created, post.Message, post.ParentPost, thread.Id,
+			thread.ForumSlug).Scan(&post.Id); err != nil {
 			if err == sql.ErrNoRows {
 				return context.JSON(http.StatusNotFound, Error{
 					Message: "Can't find post author by nickname " + post.ProfileNickname,
