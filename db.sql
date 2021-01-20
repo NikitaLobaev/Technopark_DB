@@ -103,8 +103,15 @@ CREATE INDEX ON post (thread_id, created, id);
 CREATE INDEX ON post (thread_id, id)
     INCLUDE (path_);
 
+CREATE INDEX ON post (path_, created, id)
+    INCLUDE (thread_id);
+CREATE INDEX ON post (created, id)
+    INCLUDE (thread_id);
+
 CREATE INDEX ON forum_user USING hash (forum_slug);
 CREATE INDEX ON forum_user USING hash (profile_nickname);
+CREATE INDEX ON forum_user (forum_slug, profile_nickname);
+CREATE INDEX ON forum_user (profile_nickname, forum_slug);
 
 CREATE FUNCTION trigger_thread_after_insert()
     RETURNS TRIGGER
