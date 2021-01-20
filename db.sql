@@ -6,8 +6,8 @@ ALTER SYSTEM SET fsync = FALSE;
 ALTER SYSTEM SET full_page_writes = FALSE;
 ALTER SYSTEM SET synchronous_commit = FALSE;
 ALTER SYSTEM SET archive_mode = FALSE;
-ALTER SYSTEM SET shared_buffers = '3 GB';
-ALTER SYSTEM SET effective_cache_size = '8 GB';
+ALTER SYSTEM SET shared_buffers = '400 MB';
+ALTER SYSTEM SET effective_cache_size = '1 GB';
 ALTER SYSTEM SET work_mem = '32 MB';
 
 SELECT pg_reload_conf();
