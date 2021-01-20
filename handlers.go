@@ -399,17 +399,9 @@ func PostsCreate(context echo.Context) error {
 	var threadSlug sql.NullString
 	slugOrId := context.Param("slug_or_id")
 
-	tx, err := DBConnection.Begin()
-	if err != nil {
-		panic(err)
-	}
-
 	if _, err := strconv.Atoi(slugOrId); err == nil {
 		if err := DBConnection.QueryRow("SELECT thread.id, thread.slug, thread.forum_slug FROM thread WHERE thread.id = $1;",
 			slugOrId).Scan(&thread.Id, &threadSlug, &thread.ForumSlug); err != nil {
-			if err := tx.Rollback(); err != nil {
-				panic(err)
-			}
 			return context.JSON(http.StatusNotFound, Error{
 				Message: "Can't find thread with id " + slugOrId,
 			})
@@ -417,9 +409,6 @@ func PostsCreate(context echo.Context) error {
 	} else {
 		if err := DBConnection.QueryRow("SELECT thread.id, thread.slug, thread.forum_slug FROM thread WHERE thread.slug = $1;",
 			slugOrId).Scan(&thread.Id, &threadSlug, &thread.ForumSlug); err != nil {
-			if err := tx.Rollback(); err != nil {
-				panic(err)
-			}
 			return context.JSON(http.StatusNotFound, Error{
 				Message: "Can't find thread with slug " + slugOrId,
 			})
@@ -442,14 +431,16 @@ func PostsCreate(context echo.Context) error {
 	}
 
 	if len(posts) == 0 {
-		if err := tx.Rollback(); err != nil {
-			panic(err)
-		}
 		return context.JSON(http.StatusCreated, posts)
 	}
 
 	location, _ := time.LoadLocation("UTC")
 	now := time.Now().In(location).Round(time.Microsecond)
+
+	tx, err := DBConnection.Begin()
+	if err != nil {
+		panic(err)
+	}
 
 	for _, post := range posts { //TODO: возможно везде заменить создание массивов/данных в стеке на make... везде так
 		if post.Created.IsZero() {

@@ -87,8 +87,8 @@ CREATE INDEX ON post (thread_id, path_, created, id);
 CREATE INDEX ON post USING hash (post_root_id);
 CREATE INDEX ON post (thread_id, post_root_id)
     WHERE post_parent_id IS NULL;
---CREATE INDEX ON post (post_root_id, path_, created);
---CREATE INDEX ON post (thread_id, id, created);
+CREATE INDEX ON post (post_root_id, path_, created);
+CREATE INDEX ON post (thread_id, id, created);
 
 CREATE INDEX ON forum_user USING hash (forum_slug);
 CREATE INDEX ON forum_user USING hash (profile_nickname);
