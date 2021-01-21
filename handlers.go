@@ -91,6 +91,7 @@ type Status struct {
 }
 
 //TODO: сгенерировать easyjson?
+//TODO: вставку полей типа INSERT INTO ... (profile_nickname, ...) SELECT profile.nickname, ... FROM profile ... оставлять на откуп СУБД (в триггерах), а не приложению
 
 func ForumCreate(context echo.Context) error {
 	var forum Forum
@@ -98,16 +99,19 @@ func ForumCreate(context echo.Context) error {
 		panic(err)
 	}
 
-	if err := DBConnection.QueryRow("SELECT forum.slug, forum.title, forum.profile_nickname FROM forum WHERE forum.slug = $1;",
-		forum.Slug).Scan(&forum.Slug, &forum.Title, &forum.ProfileNickname); err != sql.ErrNoRows {
-		return context.JSON(http.StatusConflict, forum)
-	}
-
 	if err := DBConnection.QueryRow("INSERT INTO forum (slug, title, profile_nickname) SELECT $1, $2, profile.nickname FROM profile WHERE profile.nickname = $3 RETURNING forum.profile_nickname;",
 		forum.Slug, forum.Title, forum.ProfileNickname).Scan(&forum.ProfileNickname); err != nil {
-		return context.JSON(http.StatusNotFound, Error{
-			Message: "Can't find user with nickname " + forum.ProfileNickname,
-		})
+		if err == sql.ErrNoRows {
+			return context.JSON(http.StatusNotFound, Error{
+				Message: "Can't find user with nickname " + forum.ProfileNickname,
+			})
+		} else {
+			if err := DBConnection.QueryRow("SELECT forum.slug, forum.title, forum.profile_nickname FROM forum WHERE forum.slug = $1;",
+				forum.Slug).Scan(&forum.Slug, &forum.Title, &forum.ProfileNickname); err != nil {
+				panic(err)
+			}
+			return context.JSON(http.StatusConflict, forum)
+		}
 	}
 
 	return context.JSON(http.StatusCreated, forum)
@@ -120,29 +124,28 @@ func ThreadCreate(context echo.Context) error {
 	}
 	thread.ForumSlug = context.Param("slug_")
 
+	var err error
 	if thread.Slug != "" {
-		if err := DBConnection.QueryRow("SELECT thread.id, thread.profile_nickname, thread.created, thread.forum_slug, thread.message, thread.slug, thread.title FROM thread WHERE thread.slug = $1;",
-			thread.Slug).Scan(&thread.Id, &thread.ProfileNickname, &thread.Created, &thread.ForumSlug, &thread.Message,
-			&thread.Slug, &thread.Title); err != sql.ErrNoRows {
-			return context.JSON(http.StatusConflict, thread)
-		}
-	}
-
-	if thread.Slug != "" {
-		if err := DBConnection.QueryRow("INSERT INTO thread (profile_id, profile_nickname, created, forum_id, forum_slug, message, slug, title) SELECT profile.id, profile.nickname, $2, forum.id, forum.slug, $4, $5, $6 FROM profile, forum WHERE profile.nickname = $1 AND forum.slug = $3 RETURNING thread.id, thread.profile_nickname, thread.forum_slug;",
+		err = DBConnection.QueryRow("INSERT INTO thread (profile_id, profile_nickname, created, forum_id, forum_slug, message, slug, title) SELECT profile.id, profile.nickname, $2, forum.id, forum.slug, $4, $5, $6 FROM profile, forum WHERE profile.nickname = $1 AND forum.slug = $3 RETURNING thread.id, thread.profile_nickname, thread.forum_slug;",
 			thread.ProfileNickname, thread.Created, thread.ForumSlug, thread.Message, thread.Slug, thread.Title).
-			Scan(&thread.Id, &thread.ProfileNickname, &thread.ForumSlug); err != nil {
-			return context.JSON(http.StatusNotFound, Error{
-				Message: "Can't find user with nickname " + thread.ProfileNickname + " or forum with slug " + thread.ForumSlug,
-			})
-		}
+			Scan(&thread.Id, &thread.ProfileNickname, &thread.ForumSlug)
 	} else {
-		if err := DBConnection.QueryRow("INSERT INTO thread (profile_id, profile_nickname, created, forum_id, forum_slug, message, title) SELECT profile.id, profile.nickname, $2, forum.id, forum.slug, $4, $5 FROM profile, forum WHERE profile.nickname = $1 AND forum.slug = $3 RETURNING thread.id, thread.profile_nickname, thread.forum_slug;",
+		err = DBConnection.QueryRow("INSERT INTO thread (profile_id, profile_nickname, created, forum_id, forum_slug, message, title) SELECT profile.id, profile.nickname, $2, forum.id, forum.slug, $4, $5 FROM profile, forum WHERE profile.nickname = $1 AND forum.slug = $3 RETURNING thread.id, thread.profile_nickname, thread.forum_slug;",
 			thread.ProfileNickname, thread.Created, thread.ForumSlug, thread.Message, thread.Title).
-			Scan(&thread.Id, &thread.ProfileNickname, &thread.ForumSlug); err != nil {
+			Scan(&thread.Id, &thread.ProfileNickname, &thread.ForumSlug)
+	}
+	if err != nil {
+		if err == sql.ErrNoRows {
 			return context.JSON(http.StatusNotFound, Error{
 				Message: "Can't find user with nickname " + thread.ProfileNickname + " or forum with slug " + thread.ForumSlug,
 			})
+		} else {
+			if err := DBConnection.QueryRow("SELECT thread.id, thread.profile_nickname, thread.created, thread.forum_slug, thread.message, thread.slug, thread.title FROM thread WHERE thread.slug = $1;",
+				thread.Slug).Scan(&thread.Id, &thread.ProfileNickname, &thread.Created, &thread.ForumSlug, &thread.Message,
+				&thread.Slug, &thread.Title); err != nil {
+				panic(err)
+			}
+			return context.JSON(http.StatusConflict, thread)
 		}
 	}
 
@@ -247,18 +250,18 @@ func ForumGetUsers(context echo.Context) error {
 	since := context.QueryParam("since")
 	if context.QueryParam("desc") != "true" {
 		if since == "" {
-			rows, err = DBConnection.Query("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM forum_user JOIN profile ON forum_user.profile_nickname = profile.nickname WHERE forum_user.forum_slug = $1 ORDER BY profile.nickname LIMIT $2;",
+			rows, err = DBConnection.Query("SELECT forum_user.profile_nickname, forum_user.profile_about, forum_user.profile_email, forum_user.profile_fullname FROM forum_user WHERE forum_user.forum_slug = $1 ORDER BY forum_user.profile_nickname LIMIT $2;",
 				forum.Slug, limit)
 		} else {
-			rows, err = DBConnection.Query("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM forum_user JOIN profile ON forum_user.profile_nickname = profile.nickname WHERE forum_user.forum_slug = $1 AND profile.nickname > $2 ORDER BY profile.nickname LIMIT $3;",
+			rows, err = DBConnection.Query("SELECT forum_user.profile_nickname, forum_user.profile_about, forum_user.profile_email, forum_user.profile_fullname FROM forum_user WHERE forum_user.forum_slug = $1 AND forum_user.profile_nickname > $2 ORDER BY forum_user.profile_nickname LIMIT $3;",
 				forum.Slug, since, limit)
 		}
 	} else {
 		if since == "" {
-			rows, err = DBConnection.Query("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM forum_user JOIN profile ON forum_user.profile_nickname = profile.nickname WHERE forum_user.forum_slug = $1 ORDER BY profile.nickname DESC LIMIT $2;",
+			rows, err = DBConnection.Query("SELECT forum_user.profile_nickname, forum_user.profile_about, forum_user.profile_email, forum_user.profile_fullname FROM forum_user WHERE forum_user.forum_slug = $1 ORDER BY forum_user.profile_nickname DESC LIMIT $2;",
 				forum.Slug, limit)
 		} else {
-			rows, err = DBConnection.Query("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM forum_user JOIN profile ON forum_user.profile_nickname = profile.nickname WHERE forum_user.forum_slug = $1 AND profile.nickname < $2 ORDER BY profile.nickname DESC LIMIT $3;",
+			rows, err = DBConnection.Query("SELECT forum_user.profile_nickname, forum_user.profile_about, forum_user.profile_email, forum_user.profile_fullname FROM forum_user WHERE forum_user.forum_slug = $1 AND forum_user.profile_nickname < $2 ORDER BY forum_user.profile_nickname DESC LIMIT $3;",
 				forum.Slug, since, limit)
 		}
 	}
@@ -349,7 +352,7 @@ func PostGetOne(context echo.Context) error {
 	return context.JSON(http.StatusOK, postFull)
 }
 
-func PostUpdate(context echo.Context) error {
+func PostUpdate(context echo.Context) error { //TODO: тоже можно сократить количество походов в СУБД, но есть ли смысл? это update...
 	var post Post
 	id := context.Param("id")
 	post.Id, _ = strconv.ParseUint(id, 10, 64)
@@ -377,7 +380,7 @@ func PostUpdate(context echo.Context) error {
 	return context.JSON(http.StatusOK, updatedPost)
 }
 
-func ServiceClear(context echo.Context) error { //SELECT clear();
+func ServiceClear(context echo.Context) error {
 	if _, err := DBConnection.Exec("TRUNCATE TABLE profile RESTART IDENTITY CASCADE;"); err != nil {
 		panic(err)
 	}
@@ -445,7 +448,7 @@ func PostsCreate(context echo.Context) error {
 		panic(err)
 	}
 
-	statement, err := tx.Prepare("INSERT INTO post (profile_id, profile_nickname, created, message, post_parent_id, thread_id, forum_id, forum_slug) SELECT profile.id, profile.nickname, $2, $3, $4, $5, $6, $7 FROM profile WHERE profile.nickname = $1 RETURNING post.id;")
+	statement, err := tx.Prepare("INSERT INTO post (profile_nickname, created, message, post_parent_id, thread_id, forum_id, forum_slug) SELECT profile.nickname, $2, $3, $4, $5, $6, $7 FROM profile WHERE profile.nickname = $1 RETURNING post.id;")
 	defer func() {
 		if err := statement.Close(); err != nil {
 			panic(err)
@@ -509,7 +512,7 @@ func ThreadGetOne(context echo.Context) error {
 	return context.JSON(http.StatusOK, thread)
 }
 
-func ThreadUpdate(context echo.Context) error {
+func ThreadUpdate(context echo.Context) error { //TODO: тоже можно сократить количество походов в СУБД, но есть ли смысл? это update...
 	var thread Thread
 	var threadSlug sql.NullString
 	slugOrId := context.Param("slug_or_id")
@@ -699,6 +702,12 @@ func UserCreate(context echo.Context) error {
 	}
 	profile.Nickname = context.Param("nickname")
 
+	_, err := DBConnection.Exec("INSERT INTO profile (nickname, about, email, fullname) VALUES ($1, $2, $3, $4);",
+		profile.Nickname, profile.About, profile.Email, profile.Fullname)
+	if err == nil {
+		return context.JSON(http.StatusCreated, profile)
+	}
+
 	rows, err := DBConnection.Query("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM profile WHERE profile.nickname = $1 OR profile.email = $2;",
 		profile.Nickname, profile.Email)
 	if err != nil {
@@ -720,16 +729,7 @@ func UserCreate(context echo.Context) error {
 		existingProfiles = append(existingProfiles, existingProfile)
 	}
 
-	if len(existingProfiles) > 0 {
-		return context.JSON(http.StatusConflict, existingProfiles)
-	}
-
-	if _, err = DBConnection.Exec("INSERT INTO profile (nickname, about, email, fullname) VALUES ($1, $2, $3, $4);",
-		profile.Nickname, profile.About, profile.Email, profile.Fullname); err != nil {
-		panic(err)
-	}
-
-	return context.JSON(http.StatusCreated, profile)
+	return context.JSON(http.StatusConflict, existingProfiles)
 }
 
 func UserGetOne(context echo.Context) error {
@@ -745,7 +745,7 @@ func UserGetOne(context echo.Context) error {
 	return context.JSON(http.StatusOK, profile)
 }
 
-func UserUpdate(context echo.Context) error {
+func UserUpdate(context echo.Context) error { //TODO: тоже можно сократить количество походов в СУБД, но есть ли смысл? это update...
 	var profile Profile
 	profile.Nickname = context.Param("nickname")
 	if err := DBConnection.QueryRow("SELECT profile.nickname, profile.about, profile.email, profile.fullname FROM profile WHERE profile.nickname = $1;",
