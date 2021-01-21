@@ -91,7 +91,7 @@ type Status struct {
 //TODO: сгенерировать easyjson?
 //TODO: вставку полей типа INSERT INTO ... (profile_nickname, ...) SELECT profile.nickname, ... FROM profile ... оставлять на откуп СУБД (в триггерах), а не приложению
 
-var apiCalls uint8
+/*var apiCalls uint8
 
 func Api(_ echo.Context) error {
 	if apiCalls++; apiCalls == 3 {
@@ -100,7 +100,7 @@ func Api(_ echo.Context) error {
 		}
 	}
 	return nil
-}
+}*/
 
 func ForumCreate(context echo.Context) error {
 	var forum Forum

@@ -103,7 +103,7 @@ CREATE INDEX ON post (thread_id, created, id);
 
 CREATE INDEX ON forum_user USING hash (forum_slug);
 --CREATE INDEX ON forum_user USING hash (profile_nickname);
-CREATE INDEX ON forum_user (profile_nickname, forum_slug);
+--CREATE INDEX ON forum_user (profile_nickname, forum_slug);
 
 CREATE FUNCTION trigger_profile_after_update()
     RETURNS TRIGGER
