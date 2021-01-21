@@ -91,21 +91,16 @@ type Status struct {
 //TODO: сгенерировать easyjson?
 //TODO: вставку полей типа INSERT INTO ... (profile_nickname, ...) SELECT profile.nickname, ... FROM profile ... оставлять на откуп СУБД (в триггерах), а не приложению
 
-/*var stmtForumGetOne *sql.Stmt
+var apiCalls uint8
 
 func Api(_ echo.Context) error {
-	var err error
-	stmtForumGetOne, err = DBConnection.Prepare("SELECT forum.slug, forum.title, forum.profile_nickname, forum.threads, forum.posts FROM forum WHERE forum.slug = $1;")
-	if err != nil || stmtForumGetOne == nil {
-		panic(err)
-	}
-	var err error
-	_, err = DBConnection.Exec("PREPARE prepared_forum_get_one AS SELECT forum.slug, forum.title, forum.profile_nickname, forum.threads, forum.posts FROM forum WHERE forum.slug = $1;")
-	if err != nil || stmtForumGetOne == nil {
-		panic(err)
+	if apiCalls++; apiCalls == 3 {
+		if _, err := DBConnection.Exec("VACUUM ANALYZE;"); err != nil {
+			panic(err)
+		}
 	}
 	return nil
-}*/
+}
 
 func ForumCreate(context echo.Context) error {
 	var forum Forum
