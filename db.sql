@@ -80,7 +80,7 @@ CREATE INDEX ON profile USING hash (email);
 
 CREATE INDEX ON forum USING hash (slug);
 
---CREATE INDEX ON thread USING hash (id);
+CREATE INDEX ON thread USING hash (id);
 CREATE INDEX ON thread USING hash (slug)
     WHERE slug IS NOT NULL;
 CREATE INDEX ON thread USING hash (forum_slug);
@@ -98,11 +98,12 @@ CREATE INDEX ON post (thread_id, post_root_id, id)
 CREATE INDEX ON post USING hash (post_root_id);
 CREATE INDEX ON post (post_root_id, path_, created, id);
 CREATE INDEX ON post (thread_id, created, id);
-CREATE INDEX ON post (thread_id, id, created);
+CREATE INDEX ON post (thread_id, id, created)
+    INCLUDE (id);
 
 CREATE INDEX ON forum_user USING hash (forum_slug);
 --CREATE INDEX ON forum_user USING hash (profile_nickname);
-CREATE INDEX ON forum_user (forum_slug, profile_nickname);
+CREATE INDEX ON forum_user (profile_nickname, forum_slug);
 
 CREATE FUNCTION trigger_profile_after_update()
     RETURNS TRIGGER
