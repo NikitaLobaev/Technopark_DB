@@ -71,7 +71,7 @@ CREATE UNLOGGED TABLE forum_user (
     profile_nickname citext COLLATE "C" NOT NULL REFERENCES profile (nickname) ON DELETE CASCADE,
     PRIMARY KEY (forum_slug, profile_nickname),
     profile_about TEXT NOT NULL,
-    profile_email citext NOT NULL,
+    profile_email citext NOT NULL REFERENCES profile (email) ON DELETE CASCADE ON UPDATE CASCADE,
     profile_fullname TEXT NOT NULL
 );
 
@@ -80,13 +80,13 @@ CREATE INDEX ON profile USING hash (email);
 
 CREATE INDEX ON forum USING hash (slug);
 
-CREATE INDEX ON thread USING hash (id);
+--CREATE INDEX ON thread USING hash (id);
 CREATE INDEX ON thread USING hash (slug)
     WHERE slug IS NOT NULL;
 CREATE INDEX ON thread USING hash (forum_slug);
 CREATE INDEX ON thread (forum_slug, created);
 
-CREATE INDEX ON post USING hash (id);
+--CREATE INDEX ON post USING hash (id);
 CREATE INDEX ON post USING hash (thread_id);
 CREATE INDEX ON post (thread_id, path_, created, id);
 CREATE INDEX ON post (thread_id, id)
@@ -108,8 +108,10 @@ CREATE FUNCTION trigger_profile_after_update()
     RETURNS TRIGGER
 AS $trigger_profile_after_update$
 BEGIN
-    UPDATE forum_user SET profile_about = NEW.about, profile_email = NEW.email, profile_fullname = NEW.fullname
-    WHERE forum_user.profile_nickname = NEW.nickname;
+    IF OLD.about != NEW.about OR OLD.fullname != NEW.fullname THEN
+        UPDATE forum_user SET profile_about = NEW.about, profile_fullname = NEW.fullname
+        WHERE forum_user.profile_nickname = NEW.nickname;
+    END IF;
     RETURN NEW;
 END;
 $trigger_profile_after_update$ LANGUAGE plpgsql;
@@ -247,6 +249,11 @@ CREATE TRIGGER after_update AFTER UPDATE
     ON vote
     FOR EACH ROW
     EXECUTE PROCEDURE trigger_vote_after_update();
+
+/*PREPARE prepared_forum_get_one AS
+    SELECT forum.slug, forum.title, forum.profile_nickname, forum.threads, forum.posts
+    FROM forum
+    WHERE forum.slug = $1;*/
 
 /*CREATE FUNCTION clear()
     RETURNS VOID
