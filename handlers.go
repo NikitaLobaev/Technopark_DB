@@ -712,14 +712,14 @@ func ThreadGetPosts(context echo.Context) error {
 		break
 	case "parent_tree":
 		if since == "" {
-			rows, err = DBConnection.Query(fmt.Sprintf("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.post_parent_id FROM post JOIN (SELECT post.id FROM post WHERE post.post_parent_id IS NULL AND post.thread_id = $1 ORDER BY post.id %s LIMIT $2) root_posts ON post.post_root_id = root_posts.id ORDER BY post.post_root_id %s, post.path_, post.created, post.id;", desc, desc),
+			rows, err = DBConnection.Query(fmt.Sprintf("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.post_parent_id FROM post WHERE post.post_root_id IN (SELECT post.id FROM post WHERE post.post_parent_id IS NULL AND post.thread_id = $1 ORDER BY post.id %s LIMIT $2) ORDER BY post.post_root_id %s, post.path_, post.created, post.id;", desc, desc),
 				thread.Id, limit)
 		} else {
 			if desc == "" {
-				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.post_parent_id FROM post JOIN (SELECT post.id FROM post WHERE post.post_parent_id IS NULL AND post.thread_id = $1 AND post.post_root_id > (SELECT post.post_root_id FROM post WHERE post.id = $2) ORDER BY post.id LIMIT $3) root_posts ON post.post_root_id = root_posts.id ORDER BY post.post_root_id, post.path_, post.created, post.id;",
+				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.post_parent_id FROM post WHERE post.post_root_id IN (SELECT post.id FROM post WHERE post.post_parent_id IS NULL AND post.thread_id = $1 AND post.post_root_id > (SELECT post.post_root_id FROM post WHERE post.id = $2) ORDER BY post.id LIMIT $3) ORDER BY post.post_root_id, post.path_, post.created, post.id;",
 					thread.Id, since, limit)
 			} else {
-				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.post_parent_id FROM post JOIN (SELECT post.id FROM post WHERE post.post_parent_id IS NULL AND post.thread_id = $1 AND post.post_root_id < (SELECT post.post_root_id FROM post WHERE post.id = $2) ORDER BY post.id DESC LIMIT $3) root_posts ON post.post_root_id = root_posts.id ORDER BY post.post_root_id DESC, post.path_, post.created, post.id;",
+				rows, err = DBConnection.Query("SELECT post.id, post.profile_nickname, post.created, post.is_edited, post.message, post.post_parent_id FROM post WHERE post.post_root_id IN (SELECT post.id FROM post WHERE post.post_parent_id IS NULL AND post.thread_id = $1 AND post.post_root_id < (SELECT post.post_root_id FROM post WHERE post.id = $2) ORDER BY post.id DESC LIMIT $3) ORDER BY post.post_root_id DESC, post.path_, post.created, post.id;",
 					thread.Id, since, limit)
 			}
 		}
